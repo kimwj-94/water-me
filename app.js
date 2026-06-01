@@ -69,6 +69,58 @@ function isFileProtocol() {
   return window.location.protocol === 'file:';
 }
 
+function getKoreaSeason(dateInput = new Date()) {
+  const date = typeof dateInput === 'string'
+    ? parseDateOnly(dateInput) || new Date()
+    : dateInput;
+  const month = date.getMonth() + 1;
+  if (month >= 3 && month <= 5) return 'spring';
+  if (month >= 6 && month <= 8) return 'summer';
+  if (month >= 9 && month <= 11) return 'autumn';
+  return 'winter';
+}
+
+function getSeasonLabel(season) {
+  return {
+    spring: '봄',
+    summer: '여름',
+    autumn: '가을',
+    winter: '겨울'
+  }[season] || '계절';
+}
+
+function getDefaultSeasonalWatering(name = '') {
+  const lowerName = name.toLowerCase();
+  const dryLovingKeywords = [
+    '선인장', '다육', '스투키', '산세베리아', '문샤인', '금전수',
+    '돈나무', '소철', '호야', '페페로미아', '틸란드시아'
+  ];
+  const moistureLovingKeywords = [
+    '율마', '유칼립투스', '보스턴고사리', '피토니아', '칼라데아',
+    '마란타', '스파티필름', '마리모', '로즈마리'
+  ];
+
+  if (dryLovingKeywords.some(keyword => lowerName.includes(keyword.toLowerCase()))) {
+    return { spring: 1, summer: 0.9, autumn: 1.15, winter: 2.2 };
+  }
+
+  if (moistureLovingKeywords.some(keyword => lowerName.includes(keyword.toLowerCase()))) {
+    return { spring: 0.9, summer: 0.75, autumn: 1, winter: 1.25 };
+  }
+
+  return { spring: 1, summer: 0.8, autumn: 1, winter: 1.5 };
+}
+
+function normalizeSeasonalWatering(raw, name = '') {
+  const defaults = getDefaultSeasonalWatering(name);
+  const profile = raw && typeof raw === 'object' ? raw : {};
+  return ['spring', 'summer', 'autumn', 'winter'].reduce((acc, season) => {
+    const value = Number(profile[season]);
+    acc[season] = Number.isFinite(value) && value > 0 ? value : defaults[season];
+    return acc;
+  }, {});
+}
+
 function normalizePlant(raw) {
   const waterPeriod = parseInt(raw?.waterPeriod, 10);
   const id = String(raw?.id || Date.now());
@@ -82,6 +134,10 @@ function normalizePlant(raw) {
     waterPeriod: Number.isFinite(waterPeriod) && waterPeriod >= 1 ? waterPeriod : 7,
     lastWatered,
     googleEventId: raw?.googleEventId || null,
+    googleEventIds: Array.isArray(raw?.googleEventIds)
+      ? raw.googleEventIds
+      : (raw?.googleEventId ? [raw.googleEventId] : []),
+    seasonalAdjustment: raw?.seasonalAdjustment !== false,
     updatedAt: raw?.updatedAt || raw?.lastModified || nowStamp()
   };
 }
@@ -98,6 +154,7 @@ function normalizePlantDbEntry(raw, source = 'custom') {
     light: String(raw?.light || '반양지').trim(),
     difficulty: String(raw?.difficulty || '보통').trim(),
     tip: String(raw?.tip || '').trim(),
+    seasonalWatering: normalizeSeasonalWatering(raw?.seasonalWatering, name),
     source
   };
 }
@@ -172,6 +229,7 @@ const DOM = {
   plantNicknameInput: document.getElementById('plant-nickname-input'),
   plantPeriodInput: document.getElementById('plant-period-input'),
   plantLastWateredInput: document.getElementById('plant-last-watered-input'),
+  plantSeasonalAdjustmentInput: document.getElementById('plant-seasonal-adjustment-input'),
   autocompleteList: document.getElementById('autocomplete-list'),
   dbInfoBox: document.getElementById('db-info-box'),
   infoLightText: document.getElementById('info-light-text'),
@@ -362,17 +420,58 @@ function savePlantsToStorage() {
   localStorage.setItem('water_me_plants', JSON.stringify(plants));
 }
 
+function getPlantSeasonalProfile(plant) {
+  const info = plantDatabase.find(entry => entry.name === plant.name);
+  return normalizeSeasonalWatering(info?.seasonalWatering, plant.name);
+}
+
+function calculateEffectiveWaterPeriod(plant, dateStr = formatLocalDate()) {
+  const basePeriod = parseInt(plant.waterPeriod, 10);
+  const safeBasePeriod = Number.isFinite(basePeriod) && basePeriod > 0 ? basePeriod : 7;
+  if (plant.seasonalAdjustment === false) {
+    return {
+      days: safeBasePeriod,
+      season: getKoreaSeason(dateStr),
+      multiplier: 1,
+      adjusted: false
+    };
+  }
+
+  const season = getKoreaSeason(dateStr);
+  const profile = getPlantSeasonalProfile(plant);
+  const multiplier = profile[season] || 1;
+  const days = Math.max(1, Math.round(safeBasePeriod * multiplier));
+
+  return {
+    days,
+    season,
+    multiplier,
+    adjusted: multiplier !== 1
+  };
+}
+
+function calculateNextWateringFromLastWatered(plant, referenceDateStr = formatLocalDate()) {
+  const seasonalAnchorDate = plant.lastWatered < referenceDateStr
+    ? referenceDateStr
+    : plant.lastWatered;
+  const effective = calculateEffectiveWaterPeriod(plant, seasonalAnchorDate);
+  return {
+    nextDateStr: addDaysToDateString(plant.lastWatered, effective.days),
+    effective
+  };
+}
+
 // D-Day 및 날짜 계산기
 function calculatePlantSchedule(plant) {
-  const lastWateredDate = parseDateOnly(plant.lastWatered) || parseDateOnly(formatLocalDate());
-  const period = parseInt(plant.waterPeriod, 10);
-  
-  // 다음 물줄 날짜 계산
-  const nextWateredDateStr = addDaysToDateString(plant.lastWatered, period);
+  const todayStr = formatLocalDate();
+  const lastWateredDate = parseDateOnly(plant.lastWatered) || parseDateOnly(todayStr);
+  const nextWatering = calculateNextWateringFromLastWatered(plant, todayStr);
+  const nextWateredDateStr = nextWatering.nextDateStr;
   const nextWateredDate = parseDateOnly(nextWateredDateStr);
+  const effective = nextWatering.effective;
   
   // D-Day 일수 계산 (자정 기준 정규화)
-  const today = parseDateOnly(formatLocalDate());
+  const today = parseDateOnly(todayStr);
   const targetDate = nextWateredDate || lastWateredDate;
   
   const diffTime = targetDate.getTime() - today.getTime();
@@ -380,7 +479,11 @@ function calculatePlantSchedule(plant) {
   
   return {
     nextWateredDateStr,
-    dDay: diffDays
+    dDay: diffDays,
+    effectiveWaterPeriod: effective.days,
+    season: effective.season,
+    seasonalMultiplier: effective.multiplier,
+    seasonalAdjusted: plant.seasonalAdjustment !== false && effective.multiplier !== 1
   };
 }
 
@@ -410,7 +513,10 @@ function renderApp() {
       ...plant,
       nextWatered: schedule.nextWateredDateStr,
       dDay: schedule.dDay,
-      status: getPlantStatus(schedule.dDay)
+      status: getPlantStatus(schedule.dDay),
+      effectiveWaterPeriod: schedule.effectiveWaterPeriod,
+      season: schedule.season,
+      seasonalAdjusted: schedule.seasonalAdjusted
     };
   });
   
@@ -480,6 +586,10 @@ function renderDashboard(filteredPlants) {
     const safeName = escapeHTML(plant.name);
     const safeNickname = escapeHTML(plant.nickname || plant.name);
     const safeWaterPeriod = escapeHTML(plant.waterPeriod);
+    const safeEffectiveWaterPeriod = escapeHTML(plant.effectiveWaterPeriod || plant.waterPeriod);
+    const seasonalLabel = plant.seasonalAdjustment === false
+      ? '계절 보정 꺼짐'
+      : `${getSeasonLabel(plant.season)} 보정${plant.seasonalAdjusted ? ' 적용' : ' 기준'}`;
     const safeLastWatered = escapeHTML(plant.lastWatered);
     const safeNextWatered = escapeHTML(plant.nextWatered);
     
@@ -505,7 +615,7 @@ function renderDashboard(filteredPlants) {
     card.classList.add(statusClass);
       
     // 구글 캘린더 연동 배지 표시
-    const hasGoogleEvent = plant.googleEventId 
+    const hasGoogleEvent = plant.googleEventId || plant.googleEventIds?.length
       ? `<span class="material-icons-round" style="font-size: 1rem; color: var(--color-primary); vertical-align: middle; margin-left: 4px;" title="구글 캘린더 동기화됨">sync</span>`
       : '';
     
@@ -521,7 +631,11 @@ function renderDashboard(filteredPlants) {
       <div class="schedule-info">
         <div class="schedule-row">
           <span>물주기 주기:</span>
-          <strong>${safeWaterPeriod}일마다</strong>
+          <strong>${safeEffectiveWaterPeriod}일마다</strong>
+        </div>
+        <div class="schedule-row">
+          <span>계절 보정:</span>
+          <span>${escapeHTML(seasonalLabel)}${plant.seasonalAdjusted ? ` (기본 ${safeWaterPeriod}일)` : ''}</span>
         </div>
         <div class="schedule-row">
           <span>마지막 물준 날:</span>
@@ -596,6 +710,7 @@ function renderPlantsTable(filteredPlants) {
     const safeName = escapeHTML(plant.name);
     const safeNickname = escapeHTML(plant.nickname || '-');
     const safeWaterPeriod = escapeHTML(plant.waterPeriod);
+    const safeEffectiveWaterPeriod = escapeHTML(plant.effectiveWaterPeriod || plant.waterPeriod);
     const safeLastWatered = escapeHTML(plant.lastWatered);
     const safeNextWatered = escapeHTML(plant.nextWatered);
     const safeScientificName = escapeHTML(dbInfo ? dbInfo.scientificName : '');
@@ -619,7 +734,7 @@ function renderPlantsTable(filteredPlants) {
         </div>
       </td>
       <td><strong>${safeNickname}</strong></td>
-      <td>${safeWaterPeriod}일마다</td>
+      <td>${safeEffectiveWaterPeriod}일마다</td>
       <td>${safeLastWatered}</td>
       <td>
         <span style="font-weight: bold; color: ${plant.status === 'danger' ? 'var(--color-danger)' : 'var(--text-main)'}">
@@ -676,7 +791,7 @@ async function waterPlant(id) {
   renderApp();
   showToast(`'${plants[index].nickname || plants[index].name}'에게 물을 주었습니다! 💧`, 'success');
   
-  if (googleAccessToken && plants[index].googleEventId) {
+  if (googleAccessToken && (plants[index].googleEventId || plants[index].googleEventIds?.length)) {
     showToast('구글 캘린더에 물주기 일정을 갱신하는 중...', 'info');
     await updateGoogleCalendarEvent(plants[index]);
   }
@@ -687,6 +802,12 @@ async function deletePlant(id) {
   if (index === -1) return;
   
   const name = plants[index].nickname || plants[index].name;
+  const hasSyncedCalendarEvents = plants[index].googleEventId || plants[index].googleEventIds?.length;
+  if (hasSyncedCalendarEvents && !googleAccessToken) {
+    showToast('구글 캘린더에 동기화된 화분입니다. 구글 계정 연동 후 삭제해 주세요.', 'warning');
+    switchTab('calendar-setting');
+    return;
+  }
   
   if (confirm(`'${name}' 화분을 정말 삭제하시겠습니까?`)) {
     const deletedPlant = plants[index];
@@ -695,8 +816,8 @@ async function deletePlant(id) {
     renderApp();
     showToast(`'${name}' 화분이 삭제되었습니다.`, 'warning');
     
-    if (googleAccessToken && deletedPlant.googleEventId) {
-      const deleted = await deleteGoogleCalendarEvent(deletedPlant.googleEventId);
+    if (googleAccessToken) {
+      const deleted = await deleteGoogleCalendarEventsForPlant(deletedPlant);
       if (!deleted) {
         showToast('구글 캘린더 일정 삭제는 실패했습니다. 연동 탭에서 전체 동기화를 다시 시도해 주세요.', 'warning');
       }
@@ -718,6 +839,7 @@ function openPlantModal(id = null) {
     DOM.plantNicknameInput.value = plant.nickname || '';
     DOM.plantPeriodInput.value = plant.waterPeriod;
     DOM.plantLastWateredInput.value = plant.lastWatered;
+    DOM.plantSeasonalAdjustmentInput.checked = plant.seasonalAdjustment !== false;
     DOM.btnModalSubmit.textContent = '수정 완료';
     
     updatePlantDBInfoBox(plant.name);
@@ -725,6 +847,7 @@ function openPlantModal(id = null) {
     DOM.modalTitle.textContent = '새 화분 등록하기';
     DOM.editPlantId.value = '';
     DOM.plantLastWateredInput.value = formatLocalDate();
+    DOM.plantSeasonalAdjustmentInput.checked = true;
     DOM.btnModalSubmit.textContent = '등록하기';
   }
   
@@ -743,6 +866,7 @@ async function handlePlantFormSubmit(e) {
   const nickname = DOM.plantNicknameInput.value.trim();
   const waterPeriod = parseInt(DOM.plantPeriodInput.value);
   const lastWatered = DOM.plantLastWateredInput.value;
+  const seasonalAdjustment = DOM.plantSeasonalAdjustmentInput.checked;
   
   if (!name || isNaN(waterPeriod) || !lastWatered || !parseDateOnly(lastWatered)) {
     showToast('필수 항목을 모두 올바르게 채워주세요.', 'error');
@@ -763,6 +887,7 @@ async function handlePlantFormSubmit(e) {
         nickname,
         waterPeriod,
         lastWatered,
+        seasonalAdjustment,
         updatedAt: nowStamp()
       };
       
@@ -784,6 +909,8 @@ async function handlePlantFormSubmit(e) {
       waterPeriod,
       lastWatered,
       googleEventId: null,
+      googleEventIds: [],
+      seasonalAdjustment,
       updatedAt: nowStamp()
     };
     
@@ -1291,7 +1418,8 @@ function extractPlantFromGoogleEvent(event) {
     const plantData = JSON.parse(decodeURIComponent(match[1]));
     return normalizePlant({
       ...plantData,
-      googleEventId: event.recurringEventId || event.id
+      googleEventId: event.recurringEventId || event.id,
+      googleEventIds: [event.recurringEventId || event.id]
     });
   } catch (e) {
     console.warn('이벤트 메타데이터 파싱 실패:', e);
@@ -1342,12 +1470,17 @@ function mergeLocalAndServerPlants(serverPlants) {
     if (serverIsNewer) {
       mergedById.set(serverPlant.id, {
         ...serverPlant,
-        googleEventId: serverPlant.googleEventId || localPlant.googleEventId || null
+        googleEventId: serverPlant.googleEventId || localPlant.googleEventId || null,
+        googleEventIds: Array.from(new Set([
+          ...(serverPlant.googleEventIds || []),
+          ...(localPlant.googleEventIds || [])
+        ]))
       });
     } else if (serverPlant.googleEventId && !localPlant.googleEventId) {
       mergedById.set(serverPlant.id, {
         ...localPlant,
-        googleEventId: serverPlant.googleEventId
+        googleEventId: serverPlant.googleEventId,
+        googleEventIds: serverPlant.googleEventIds || [serverPlant.googleEventId]
       });
     }
   });
@@ -1366,11 +1499,18 @@ async function syncPlantsFromGoogleCalendar() {
     const waterMeEvents = await fetchWaterMeCalendarEvents();
     const serverPlants = [];
     const processedIds = new Set();
+    const serverEventCountsByPlantId = new Map();
 
     waterMeEvents.forEach(({ plant }) => {
+      serverEventCountsByPlantId.set(plant.id, (serverEventCountsByPlantId.get(plant.id) || 0) + 1);
       if (!processedIds.has(plant.id)) {
         processedIds.add(plant.id);
         serverPlants.push(plant);
+      } else {
+        const existing = serverPlants.find(item => item.id === plant.id);
+        if (existing && plant.googleEventId && !existing.googleEventIds.includes(plant.googleEventId)) {
+          existing.googleEventIds.push(plant.googleEventId);
+        }
       }
     });
     
@@ -1381,12 +1521,17 @@ async function syncPlantsFromGoogleCalendar() {
       renderApp();
       showToast(`구글 캘린더와 ${plants.length}개의 화분 정보를 병합했습니다.`, 'success');
 
-      const localOnlyPlants = plants.filter(plant => !plant.googleEventId);
-      for (const plant of localOnlyPlants) {
+      const plantsNeedingCalendarRepair = plants.filter(plant => {
+        const serverCount = serverEventCountsByPlantId.get(plant.id) || 0;
+        const expectedCount = buildFutureWateringDates(plant, 6).length;
+        return serverCount < expectedCount;
+      });
+
+      for (const plant of plantsNeedingCalendarRepair) {
         await createGoogleCalendarEvent(plant);
       }
 
-      if (plants.length > beforeCount || localOnlyPlants.length > 0) {
+      if (plants.length > beforeCount || plantsNeedingCalendarRepair.length > 0) {
         savePlantsToStorage();
         renderApp();
       }
@@ -1400,24 +1545,30 @@ async function syncPlantsFromGoogleCalendar() {
   }
 }
 
-function buildGoogleCalendarEventResource(plant) {
-  const schedule = calculatePlantSchedule(plant);
-  const eventName = `💧 [물주기] ${plant.nickname || plant.name}`;
-  
-  const rRule = `RRULE:FREQ=DAILY;INTERVAL=${plant.waterPeriod}`;
-  const startDateTime = `${schedule.nextWateredDateStr}T08:00:00+09:00`;
-  const endDateTime = `${schedule.nextWateredDateStr}T09:00:00+09:00`;
-  
-  const plantMetaStr = encodeURIComponent(JSON.stringify({
+function buildPlantMetadata(plant) {
+  return {
     id: plant.id,
     name: plant.name,
     nickname: plant.nickname,
     waterPeriod: plant.waterPeriod,
     lastWatered: plant.lastWatered,
+    googleEventIds: plant.googleEventIds || [],
+    seasonalAdjustment: plant.seasonalAdjustment !== false,
     updatedAt: plant.updatedAt || nowStamp()
-  }));
+  };
+}
+
+function buildGoogleCalendarEventResource(plant, eventDateStr) {
+  const eventName = `💧 [물주기] ${plant.nickname || plant.name}`;
+  const startDateTime = `${eventDateStr}T08:00:00+09:00`;
+  const endDateTime = `${eventDateStr}T09:00:00+09:00`;
+  const effective = calculateEffectiveWaterPeriod(plant, eventDateStr);
+  const seasonText = plant.seasonalAdjustment === false
+    ? '계절 보정 꺼짐'
+    : `${getSeasonLabel(effective.season)} 계절 보정 기준 ${effective.days}일 주기`;
+  const plantMetaStr = encodeURIComponent(JSON.stringify(buildPlantMetadata(plant)));
   
-  const descriptionText = `'${plant.nickname || plant.name}' (${plant.name}) 화분에 시원한 물을 주는 날입니다! 🌿\n물주기 완료 후 본 프로그램에서 [물 줬어요! 💧] 버튼을 누르시면 다음 일정으로 자동 갱신됩니다.\n\n<!--WATER_ME_METADATA:${plantMetaStr}-->`;
+  const descriptionText = `'${plant.nickname || plant.name}' (${plant.name}) 화분에 시원한 물을 주는 날입니다! 🌿\n${seasonText}\n물주기 완료 후 본 프로그램에서 [물 줬어요! 💧] 버튼을 누르시면 다음 일정으로 자동 갱신됩니다.\n\n<!--WATER_ME_METADATA:${plantMetaStr}-->`;
 
   return {
     summary: eventName,
@@ -1430,10 +1581,10 @@ function buildGoogleCalendarEventResource(plant) {
       dateTime: endDateTime,
       timeZone: 'Asia/Seoul'
     },
-    recurrence: [rRule],
     extendedProperties: {
       private: {
-        waterMePlantId: plant.id
+        waterMePlantId: plant.id,
+        waterMeGenerated: 'true'
       }
     },
     reminders: {
@@ -1446,7 +1597,28 @@ function buildGoogleCalendarEventResource(plant) {
   };
 }
 
-// 구글 캘린더에 일정 등록 (반복 일정 등록 + Description 메타데이터 저장)
+function buildFutureWateringDates(plant, monthsAhead = 6) {
+  const todayStr = formatLocalDate();
+  const endDate = parseDateOnly(todayStr);
+  endDate.setMonth(endDate.getMonth() + monthsAhead);
+  const endDateStr = formatLocalDate(endDate);
+
+  const dates = [];
+  const firstWatering = calculateNextWateringFromLastWatered(plant, todayStr);
+  let nextDateStr = firstWatering.nextDateStr < todayStr ? todayStr : firstWatering.nextDateStr;
+  let guard = 0;
+
+  while (nextDateStr <= endDateStr && guard < 80) {
+    dates.push(nextDateStr);
+    const effective = calculateEffectiveWaterPeriod(plant, nextDateStr);
+    nextDateStr = addDaysToDateString(nextDateStr, effective.days);
+    guard++;
+  }
+
+  return dates;
+}
+
+// 구글 캘린더에 계절 보정이 반영된 미래 개별 일정을 등록합니다.
 async function createGoogleCalendarEvent(plant) {
   if (!googleAccessToken || !googleCalendarId) return;
   if (!gapi?.client?.calendar) return;
@@ -1454,14 +1626,22 @@ async function createGoogleCalendarEvent(plant) {
   gapi.client.setToken({ access_token: googleAccessToken });
   
   try {
-    const event = await gapi.client.calendar.events.insert({
-      calendarId: googleCalendarId,
-      resource: buildGoogleCalendarEventResource(plant)
-    });
+    await deleteGoogleCalendarEventsForPlant(plant, { quiet: true });
+    const eventIds = [];
+    const futureDates = buildFutureWateringDates(plant, 6);
+
+    for (const eventDateStr of futureDates) {
+      const event = await gapi.client.calendar.events.insert({
+        calendarId: googleCalendarId,
+        resource: buildGoogleCalendarEventResource(plant, eventDateStr)
+      });
+      eventIds.push(event.result.id);
+    }
     
     const index = plants.findIndex(p => p.id === plant.id);
     if (index !== -1) {
-      plants[index].googleEventId = event.result.id;
+      plants[index].googleEventIds = eventIds;
+      plants[index].googleEventId = eventIds[0] || null;
       savePlantsToStorage();
       renderApp();
     }
@@ -1477,27 +1657,6 @@ async function updateGoogleCalendarEvent(plant) {
   if (!gapi?.client?.calendar) return;
   
   gapi.client.setToken({ access_token: googleAccessToken });
-  
-  if (plant.googleEventId) {
-    try {
-      const event = await gapi.client.calendar.events.update({
-        calendarId: googleCalendarId,
-        eventId: plant.googleEventId,
-        resource: buildGoogleCalendarEventResource(plant)
-      });
-
-      const index = plants.findIndex(p => p.id === plant.id);
-      if (index !== -1) {
-        plants[index].googleEventId = event.result.id;
-        savePlantsToStorage();
-        renderApp();
-      }
-      return;
-    } catch (e) {
-      console.warn('기존 구글 이벤트 업데이트 실패, 새 일정 생성을 시도합니다.', e);
-    }
-  }
-  
   await createGoogleCalendarEvent(plant);
 }
 
@@ -1515,9 +1674,77 @@ async function deleteGoogleCalendarEvent(eventId) {
     });
     return true;
   } catch (err) {
+    if (err?.status === 404 || err?.status === 410 || err?.result?.error?.code === 404 || err?.result?.error?.code === 410) {
+      return true;
+    }
     console.error('이벤트 삭제 실패:', err);
     return false;
   }
+}
+
+async function findGoogleCalendarEventsForPlant(plantId) {
+  if (!googleAccessToken || !googleCalendarId || !plantId) return [];
+  if (!gapi?.client?.calendar) return [];
+
+  gapi.client.setToken({ access_token: googleAccessToken });
+
+  try {
+    const futureInstancesResponse = await gapi.client.calendar.events.list({
+      calendarId: googleCalendarId,
+      maxResults: 2500,
+      showDeleted: false,
+      singleEvents: true,
+      timeMin: `${formatLocalDate()}T00:00:00+09:00`,
+      privateExtendedProperty: `waterMePlantId=${plantId}`
+    });
+
+    const masterAndSingleResponse = await gapi.client.calendar.events.list({
+      calendarId: googleCalendarId,
+      maxResults: 2500,
+      showDeleted: false,
+      singleEvents: false,
+      privateExtendedProperty: `waterMePlantId=${plantId}`
+    });
+
+    const byId = new Map();
+    [...(futureInstancesResponse.result.items || []), ...(masterAndSingleResponse.result.items || [])]
+      .forEach(event => byId.set(event.id, event));
+
+    return Array.from(byId.values());
+  } catch (err) {
+    console.error('식물별 구글 이벤트 조회 실패:', err);
+    return [];
+  }
+}
+
+async function deleteGoogleCalendarEventsForPlant(plant, options = {}) {
+  if (!googleAccessToken || !googleCalendarId || !plant) return false;
+
+  const knownIds = new Set([
+    ...(plant.googleEventIds || []),
+    ...(plant.googleEventId ? [plant.googleEventId] : [])
+  ]);
+
+  const foundEvents = await findGoogleCalendarEventsForPlant(plant.id);
+  foundEvents.forEach(event => knownIds.add(event.id));
+
+  let success = true;
+  for (const eventId of knownIds) {
+    const deleted = await deleteGoogleCalendarEvent(eventId);
+    if (deleted === false) success = false;
+  }
+
+  if (!options.quiet) {
+    const index = plants.findIndex(p => p.id === plant.id);
+    if (index !== -1) {
+      plants[index].googleEventIds = [];
+      plants[index].googleEventId = null;
+      savePlantsToStorage();
+      renderApp();
+    }
+  }
+
+  return success;
 }
 
 // 구글 캘린더에 전체 식물 즉시 동기화
@@ -1536,11 +1763,7 @@ async function syncAllPlantsToGoogleCalendar() {
   
   try {
     for (const plant of plants) {
-      if (plant.googleEventId) {
-        await updateGoogleCalendarEvent(plant);
-      } else {
-        await createGoogleCalendarEvent(plant);
-      }
+      await updateGoogleCalendarEvent(plant);
     }
     showToast('모든 화분의 일정이 구글 캘린더에 성공적으로 동기화되었습니다! 🎉', 'success');
   } catch (err) {
