@@ -190,7 +190,7 @@
 
               <div class="form-group">
                 <label for="google-calendar-id">식물관리 캘린더 ID (권장)</label>
-                <input type="text" id="google-calendar-id" class="form-control" placeholder="B 계정 소유 캘린더의 ID를 붙여넣으면 이 캘린더만 사용합니다">
+                <input type="text" id="google-calendar-id" class="form-control" placeholder="사용할 구글 캘린더 ID를 붙여넣으면 이 캘린더만 사용합니다">
                 <p class="field-help">비워두면 '물 줘! 식물 관리' 이름의 캘린더를 자동으로 찾고, 없으면 새로 만듭니다.</p>
               </div>
 
@@ -209,7 +209,7 @@
               
               <button id="btn-sync-calendar" class="btn btn-accent w-full mt-4" disabled>
                 <span class="material-icons-round">sync</span>
-                구글 캘린더 전체 일정 즉시 동기화
+                구글 캘린더 일정 전체 재생성
               </button>
             </div>
           </div>
@@ -312,7 +312,7 @@
           <!-- 별칭 -->
           <div class="form-group">
             <label for="plant-nickname-input">화분 별명 (예: 몬몬이)</label>
-            <input type="text" id="plant-nickname-input" class="form-control" placeholder="부부만의 사랑스러운 별명">
+            <input type="text" id="plant-nickname-input" class="form-control" placeholder="예: 거실 올리브">
           </div>
         </div>
 
@@ -396,7 +396,7 @@
             <p>[API 및 서비스] &gt; [OAuth 동의 화면] 탭으로 이동합니다.
               <br>• User Type: <strong>외부(External)</strong>로 지정
               <br>• 앱 정보 입력 후 다음단계로 이동
-              <br>• 테스트 사용자: <strong>자신의 구글 이메일 및 와이프분의 구글 이메일을 반드시 추가</strong>해 줍니다. (테스트 모드이므로 필수)</p>
+              <br>• 테스트 사용자: <strong>앱을 사용할 구글 이메일을 모두 추가</strong>해 줍니다. (테스트 모드이므로 필수)</p>
           </li>
           <li>
             <h5>4. API Key 생성</h5>
@@ -411,7 +411,7 @@
           </li>
           <li>
             <h5>6. 프로그램에 입력 후 연동 완료!</h5>
-            <p>복사한 <strong>Client ID</strong>와 <strong>API Key</strong>를 본 프로그램의 설정 탭에 붙여넣습니다. 이미 B 계정이 소유한 식물관리 캘린더를 쓰려면 Google Calendar &gt; 해당 캘린더 설정 &gt; [캘린더 통합]의 <strong>캘린더 ID</strong>도 함께 붙여넣고 [설정 저장] 후 [구글 계정 연동]을 누르면 완성됩니다.</p>
+            <p>복사한 <strong>Client ID</strong>와 <strong>API Key</strong>를 본 프로그램의 설정 탭에 붙여넣습니다. 이미 사용할 식물관리 캘린더가 있다면 Google Calendar &gt; 해당 캘린더 설정 &gt; [캘린더 통합]의 <strong>캘린더 ID</strong>도 함께 붙여넣고 [설정 저장] 후 [구글 계정 연동]을 누르면 완성됩니다.</p>
           </li>
         </ol>
       </div>
