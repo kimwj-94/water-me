@@ -487,32 +487,22 @@ function renderDashboard(filteredPlants) {
     let statusClass = 'status-watered';
     let badgeClass = 'badge-watered';
     let dDayText = `D-${plant.dDay}`;
-    let avatarIconClass = 'avatar-icon-watered';
     
     if (plant.status === 'danger') {
       statusClass = 'status-danger';
       badgeClass = 'badge-danger';
       dDayText = `물 급함! D+${Math.abs(plant.dDay)}`;
-      avatarIconClass = 'avatar-icon-danger';
     } else if (plant.status === 'warning') {
       statusClass = 'status-warning';
       badgeClass = 'badge-warning';
       dDayText = '오늘 줄 날!';
-      avatarIconClass = 'avatar-icon-warning';
     } else if (plant.status === 'upcoming') {
       statusClass = 'status-warning';
       badgeClass = 'badge-warning';
       dDayText = `D-${plant.dDay}`;
-      avatarIconClass = 'avatar-icon-warning';
     }
     
     card.classList.add(statusClass);
-    
-    // 물방울 플로팅 애니메이션
-    const showDroplet = plant.status === 'danger' || plant.status === 'warning' || plant.status === 'upcoming';
-    const dropletHTML = showDroplet 
-      ? `<span class="material-icons-round water-droplet-anim">water_drop</span>` 
-      : '';
       
     // 구글 캘린더 연동 배지 표시
     const hasGoogleEvent = plant.googleEventId 
@@ -526,15 +516,6 @@ function renderDashboard(filteredPlants) {
           <span class="plant-typename">${safeName} ${hasGoogleEvent}</span>
         </div>
         <span class="dday-badge ${badgeClass}">${dDayText}</span>
-      </div>
-      
-      <div class="card-visual">
-        <div class="plant-avatar">
-          <span class="material-icons-round avatar-icon ${avatarIconClass}">
-            local_florist
-          </span>
-        </div>
-        ${dropletHTML}
       </div>
       
       <div class="schedule-info">
