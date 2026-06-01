@@ -256,5 +256,165 @@ window.plantDatabase = [
     light: "반양지",
     difficulty: "보통",
     tip: "따뜻한 실내와 높은 습도를 좋아합니다. 겉흙이 건조해지면 물을 가득 흠뻑 줍니다."
+  },
+  {
+    name: "필로덴드론 버킨",
+    scientificName: "Philodendron Birkin",
+    waterPeriod: 7,
+    light: "반양지",
+    difficulty: "쉬움",
+    tip: "겉흙이 마르면 물을 주고 강한 직사광선은 피합니다. 잎 무늬 유지를 위해 밝은 간접광이 좋습니다."
+  },
+  {
+    name: "필로덴드론 셀렘",
+    scientificName: "Thaumatophyllum bipinnatifidum",
+    waterPeriod: 7,
+    light: "반양지",
+    difficulty: "쉬움",
+    tip: "큰 잎이 넓게 퍼지므로 통풍이 잘 되는 밝은 곳에 두고 겉흙이 마르면 충분히 물을 줍니다."
+  },
+  {
+    name: "알로카시아",
+    scientificName: "Alocasia",
+    waterPeriod: 6,
+    light: "반양지",
+    difficulty: "보통",
+    tip: "과습과 냉해에 약합니다. 흙 표면이 마른 뒤 물을 주고 겨울에는 주기를 길게 잡으세요."
+  },
+  {
+    name: "칼라데아 오르비폴리아",
+    scientificName: "Calathea orbifolia",
+    waterPeriod: 5,
+    light: "반음지",
+    difficulty: "어려움",
+    tip: "건조한 공기에 약해 잎끝이 마르기 쉽습니다. 흙을 살짝 촉촉하게 유지하고 습도를 높여주세요."
+  },
+  {
+    name: "칼라데아 마코야나",
+    scientificName: "Calathea makoyana",
+    waterPeriod: 5,
+    light: "반음지",
+    difficulty: "어려움",
+    tip: "직사광선을 피하고 높은 습도를 유지합니다. 수돗물 염소에 민감할 수 있어 받아둔 물이 좋습니다."
+  },
+  {
+    name: "마란타",
+    scientificName: "Maranta leuconeura",
+    waterPeriod: 5,
+    light: "반음지",
+    difficulty: "보통",
+    tip: "기도 식물로 불리며 습한 환경을 좋아합니다. 겉흙이 마르기 전에 물을 주되 고인 물은 피하세요."
+  },
+  {
+    name: "디펜바키아",
+    scientificName: "Dieffenbachia",
+    waterPeriod: 7,
+    light: "반음지/반양지",
+    difficulty: "쉬움",
+    tip: "밝은 간접광에서 잘 자랍니다. 과습하면 줄기가 무를 수 있어 흙 표면이 마른 뒤 물을 주세요."
+  },
+  {
+    name: "드라세나 마지나타",
+    scientificName: "Dracaena marginata",
+    waterPeriod: 12,
+    light: "반음지",
+    difficulty: "쉬움",
+    tip: "건조에 강한 편입니다. 흙이 충분히 마른 뒤 물을 주고 겨울에는 물주기를 줄입니다."
+  },
+  {
+    name: "파키라",
+    scientificName: "Pachira aquatica",
+    waterPeriod: 10,
+    light: "반양지",
+    difficulty: "쉬움",
+    tip: "줄기에 수분을 저장하므로 과습을 피합니다. 밝은 곳에서 흙이 마르면 듬뿍 물을 주세요."
+  },
+  {
+    name: "무늬벤자민",
+    scientificName: "Ficus benjamina variegata",
+    waterPeriod: 8,
+    light: "반양지",
+    difficulty: "보통",
+    tip: "환경 변화에 민감합니다. 위치를 자주 바꾸지 말고 밝은 간접광에서 일정한 물주기를 유지하세요."
+  },
+  {
+    name: "떡갈고무나무",
+    scientificName: "Ficus lyrata",
+    waterPeriod: 10,
+    light: "반양지",
+    difficulty: "보통",
+    tip: "큰 잎에 먼지가 쌓이면 닦아주세요. 흙이 마른 뒤 물을 주고 찬바람은 피합니다."
+  },
+  {
+    name: "녹보수",
+    scientificName: "Radermachera sinica",
+    waterPeriod: 7,
+    light: "반양지",
+    difficulty: "쉬움",
+    tip: "밝고 통풍이 좋은 곳을 좋아합니다. 겉흙이 마르면 물을 주고 겨울에는 주기를 늘립니다."
+  },
+  {
+    name: "해피트리",
+    scientificName: "Heteropanax fragrans",
+    waterPeriod: 7,
+    light: "반양지",
+    difficulty: "쉬움",
+    tip: "실내 관엽수로 키우기 쉽습니다. 겉흙이 마르면 충분히 물을 주고 통풍을 신경 써 주세요."
+  },
+  {
+    name: "뱅갈고무나무",
+    scientificName: "Ficus benghalensis",
+    waterPeriod: 10,
+    light: "반양지",
+    difficulty: "쉬움",
+    tip: "밝은 곳에서 잎색이 선명합니다. 흙이 마른 뒤 물을 주고 과습을 피하세요."
+  },
+  {
+    name: "소철",
+    scientificName: "Cycas revoluta",
+    waterPeriod: 15,
+    light: "양지/반양지",
+    difficulty: "쉬움",
+    tip: "건조에 강하고 과습에 약합니다. 햇빛이 잘 드는 곳에서 흙이 충분히 마른 뒤 물을 주세요."
+  },
+  {
+    name: "문샤인 산세베리아",
+    scientificName: "Sansevieria trifasciata Moonshine",
+    waterPeriod: 25,
+    light: "반음지",
+    difficulty: "아주 쉬움",
+    tip: "일반 산세베리아처럼 과습을 피합니다. 은빛 잎색을 유지하려면 너무 어둡지 않은 곳이 좋습니다."
+  },
+  {
+    name: "아글라오네마",
+    scientificName: "Aglaonema",
+    waterPeriod: 8,
+    light: "반음지",
+    difficulty: "쉬움",
+    tip: "어두운 실내에도 비교적 강합니다. 흙 표면이 마르면 물을 주고 찬 공기는 피하세요."
+  },
+  {
+    name: "페페로미아",
+    scientificName: "Peperomia",
+    waterPeriod: 10,
+    light: "반양지",
+    difficulty: "쉬움",
+    tip: "잎에 수분이 많아 과습에 약합니다. 흙이 마른 뒤 소량씩 물을 주는 편이 안전합니다."
+  },
+  {
+    name: "호야",
+    scientificName: "Hoya carnosa",
+    waterPeriod: 12,
+    light: "반양지",
+    difficulty: "쉬움",
+    tip: "두꺼운 잎이 수분을 저장합니다. 밝은 간접광에서 키우고 흙이 충분히 마르면 물을 주세요."
+  },
+  {
+    name: "립살리스",
+    scientificName: "Rhipsalis",
+    waterPeriod: 10,
+    light: "반음지/반양지",
+    difficulty: "쉬움",
+    tip: "숲속 착생 선인장이라 강한 직사광선보다 밝은 간접광이 좋습니다. 흙이 마르면 물을 주세요."
   }
 ];

@@ -42,11 +42,11 @@
         </button>
         <button class="nav-btn" data-tab="calendar-setting">
           <span class="material-icons-round">calendar_today</span>
-          캘린더 연동 &amp; 공유
+          캘린더 연동
         </button>
-        <button class="nav-btn" data-tab="data-backup">
-          <span class="material-icons-round">sync_alt</span>
-          백업 및 이식
+        <button class="nav-btn" data-tab="plant-database">
+          <span class="material-icons-round">menu_book</span>
+          식물 도감
         </button>
       </nav>
 
@@ -156,16 +156,16 @@
         </div>
       </section>
 
-      <!-- 탭 3: 캘린더 연동 & 공유 -->
+      <!-- 탭 3: 캘린더 연동 -->
       <section id="tab-calendar-setting" class="tab-content">
         <div class="section-header">
           <div>
-            <h3>구글 &amp; 네이버 캘린더 연동</h3>
-            <p>100% 무료로 기기 제한 없이 와이프분과 물주기 일정을 실시간 연동하고 네이버 캘린더에서 구독하는 방법입니다.</p>
+            <h3>구글 캘린더 연동</h3>
+            <p>물주기 일정을 지정한 구글 캘린더에 안정적으로 저장하고 여러 기기에서 확인합니다.</p>
           </div>
         </div>
 
-        <div class="calendar-grid">
+        <div class="calendar-grid single-column">
           <!-- 1. 구글 API 설정 패널 -->
           <div class="glass-card calendar-card">
             <div class="card-header">
@@ -174,7 +174,7 @@
             </div>
             <div class="card-body">
               <p class="description-text">
-                이 앱은 개인용 오프라인 앱이므로, 구글 서버와 통신하기 위해 사용자 고유의 구글 API Credential(무료)이 필요합니다.<br>
+                이 앱은 식물 관리는 더블클릭으로도 가능하지만, 구글 연동은 localhost 또는 GitHub Pages 같은 웹 주소에서 실행해야 안정적으로 동작합니다. 구글 서버와 통신하려면 사용자 고유의 구글 API Credential(무료)이 필요합니다.<br>
                 <a href="#how-to-google" class="accent-link" id="link-show-guide">구글 API 키 발급 가이드 보기</a>
               </p>
               
@@ -186,6 +186,12 @@
               <div class="form-group">
                 <label for="google-api-key">Google API Key</label>
                 <input type="password" id="google-api-key" class="form-control" placeholder="AIzaSy... 형식의 API Key">
+              </div>
+
+              <div class="form-group">
+                <label for="google-calendar-id">식물관리 캘린더 ID (권장)</label>
+                <input type="text" id="google-calendar-id" class="form-control" placeholder="B 계정 소유 캘린더의 ID를 붙여넣으면 이 캘린더만 사용합니다">
+                <p class="field-help">비워두면 '물 줘! 식물 관리' 이름의 캘린더를 자동으로 찾고, 없으면 새로 만듭니다.</p>
               </div>
 
               <div class="api-actions">
@@ -207,106 +213,72 @@
               </button>
             </div>
           </div>
-
-          <!-- 2. 네이버 캘린더 연동 가이드 및 공유 가이드 -->
-          <div class="glass-card calendar-card">
-            <div class="card-header">
-              <span class="material-icons-round card-header-icon" style="color: #03C75A;">share</span>
-              <h4>2단계: 네이버 캘린더 &amp; 와이프 공유 설정 가이드</h4>
-            </div>
-            <div class="card-body guide-body">
-              <div class="guide-steps">
-                <div class="guide-step">
-                  <div class="step-num">1</div>
-                  <div class="step-desc">
-                    <h5>구글 캘린더 공유하기 (와이프 계정 추가)</h5>
-                    <p>PC로 <a href="https://calendar.google.com" target="_blank" class="accent-link">구글 캘린더</a>에 접속한 후, 새로 만들어진 <strong>'물 줘! 식물 관리'</strong> 캘린더 설정에서 [특정 사용자와 공유]를 클릭하고 <strong>와이프분의 구글 이메일을 추가</strong>해 줍니다.</p>
-                  </div>
-                </div>
-
-                <div class="guide-step">
-                  <div class="step-num">2</div>
-                  <div class="step-desc">
-                    <h5>본인의 네이버 캘린더와 연동</h5>
-                    <p><a href="https://calendar.naver.com" target="_blank" class="accent-link">네이버 캘린더 웹</a> 설정 &gt; [내 캘린더] &gt; <strong>[외부 캘린더 불러오기]</strong>에서 '구글 캘린더 연동'을 선택해 구글 계정을 로그인합니다. '물 줘!' 일정이 네이버 캘린더에 표시됩니다.</p>
-                  </div>
-                </div>
-
-                <div class="guide-step">
-                  <div class="step-num">3</div>
-                  <div class="step-desc">
-                    <h5>와이프의 네이버 캘린더 연동</h5>
-                    <p>와이프분도 마찬가지로 네이버 캘린더 설정에서 자신의 구글 계정(캘린더를 공유받은 계정)을 연동합니다. 이제 <strong>부부 모두 평소 쓰던 네이버 캘린더에서 실시간 물주기 일정을 한눈에 공유</strong>할 수 있습니다! 💑</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
       </section>
 
-      <!-- 탭 4: 백업 및 이식 -->
-      <section id="tab-data-backup" class="tab-content">
+      <!-- 탭 4: 식물 도감 -->
+      <section id="tab-plant-database" class="tab-content">
         <div class="section-header">
           <div>
-            <h3>데이터 백업 및 포터블 이식</h3>
-            <p>회사 PC의 식물 관리 데이터를 집 노트북이나 다른 환경으로 아주 간단하게 백업하고 즉시 이동할 수 있습니다.</p>
+            <h3>식물 도감 데이터베이스</h3>
+            <p>자주 키우는 실내 식물의 기본 물주기 주기와 관리 팁을 확인하고 직접 도감 항목을 추가합니다.</p>
           </div>
         </div>
 
-        <div class="backup-container">
-          <div class="glass-card backup-card">
+        <div class="plant-db-layout">
+          <div class="glass-card plant-db-form-card">
             <div class="card-header">
-              <span class="material-icons-round card-header-icon text-accent">cloud_download</span>
-              <h4>1. 내보내기 (Export)</h4>
+              <span class="material-icons-round card-header-icon text-accent">add_circle</span>
+              <h4>내 도감 항목 추가</h4>
             </div>
-            <div class="card-body">
-              <p>회사 PC 등 현재 기기에서 가꾼 화분들의 모든 데이터를 파일 하나로 안전하게 다운로드합니다.</p>
-              <ul class="bullet-list">
-                <li>저장 대상: 모든 식물 목록, 마지막 물준 날짜, 물주기 주기, 전용 별칭</li>
-                <li>파일 형식: <code>water_me_backup.json</code> (초경량 텍스트 파일)</li>
-              </ul>
-              <button id="btn-export-data" class="btn btn-primary mt-6">
-                <span class="material-icons-round">download</span>
-                데이터 백업 파일 저장
+            <form id="plant-db-form" class="card-body plant-db-form">
+              <div class="form-group">
+                <label for="db-plant-name" class="required-field">식물 이름</label>
+                <input type="text" id="db-plant-name" class="form-control" placeholder="예: 칼라데아 오르비폴리아" required>
+              </div>
+              <div class="form-group">
+                <label for="db-plant-scientific">학명 또는 영문명</label>
+                <input type="text" id="db-plant-scientific" class="form-control" placeholder="예: Calathea orbifolia">
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="db-plant-period" class="required-field">물주기 주기 (일)</label>
+                  <input type="number" id="db-plant-period" class="form-control" min="1" max="365" placeholder="예: 7" required>
+                </div>
+                <div class="form-group">
+                  <label for="db-plant-difficulty">난이도</label>
+                  <select id="db-plant-difficulty" class="form-control">
+                    <option value="쉬움">쉬움</option>
+                    <option value="아주 쉬움">아주 쉬움</option>
+                    <option value="보통" selected>보통</option>
+                    <option value="어려움">어려움</option>
+                  </select>
+                </div>
+              </div>
+              <div class="form-group">
+                <label for="db-plant-light">빛 환경</label>
+                <input type="text" id="db-plant-light" class="form-control" placeholder="예: 반양지">
+              </div>
+              <div class="form-group">
+                <label for="db-plant-tip">관리 팁</label>
+                <textarea id="db-plant-tip" class="form-control" rows="4" placeholder="겉흙이 마르면 물을 주고 통풍을 신경 써 주세요."></textarea>
+              </div>
+              <button type="submit" class="btn btn-primary w-full">
+                <span class="material-icons-round">save</span>
+                도감에 추가
               </button>
-            </div>
+            </form>
           </div>
 
-          <div class="glass-card backup-card">
-            <div class="card-header">
-              <span class="material-icons-round card-header-icon text-success">cloud_upload</span>
-              <h4>2. 가져오기 (Import)</h4>
-            </div>
-            <div class="card-body">
-              <p>이전 기기에서 백업한 <code>.json</code> 백업 파일을 불러와 현재 브라우저에 1초 만에 식물 목록을 복원합니다.</p>
-              <div class="alert-box warning-alert mt-2">
-                <span class="material-icons-round alert-icon">warning</span>
-                <p>주의: 데이터를 불러오면 현재 등록된 화분 데이터가 덮어씌워집니다.</p>
-              </div>
-              
-              <div class="file-upload-wrapper mt-4">
-                <input type="file" id="import-file-input" accept=".json" class="hidden">
-                <button id="btn-import-trigger" class="btn btn-secondary">
-                  <span class="material-icons-round">file_upload</span>
-                  백업 파일 선택 및 가져오기
-                </button>
-                <span id="import-file-name" class="file-name-text">선택된 파일 없음</span>
+          <div class="glass-card plant-db-list-card">
+            <div class="filter-bar plant-db-filter">
+              <h3>도감 목록 <span id="plant-db-count" class="muted-count">0</span></h3>
+              <div class="search-input-wrapper">
+                <span class="material-icons-round">search</span>
+                <input type="text" id="plant-db-search" placeholder="식물명, 학명, 빛 환경 검색...">
               </div>
             </div>
-          </div>
-        </div>
-
-        <!-- 클라우드 포터블 배포 안내 -->
-        <div class="glass-card banner-card mt-8">
-          <div class="banner-icon-wrapper">
-            <span class="material-icons-round banner-icon text-accent">language</span>
-          </div>
-          <div class="banner-text-wrapper">
-            <h4>💡 PC와 모바일을 넘나드는 평생 무료 웹 주소(URL) 만들기</h4>
-            <p>
-              이 프로그램의 파일들을 100% 무료 호스팅 서비스인 <strong>GitHub Pages</strong> 혹은 <strong>Vercel</strong>에 올려두시면, 파일 백업조차 필요 없이 고유한 웹 주소만으로 <strong>회사 PC, 집 노트북, 그리고 부부의 스마트폰</strong>에서 완벽하게 공유 및 실시간 동기화하여 사용할 수 있습니다. 필요하신 경우 저희가 배포 세팅을 완전히 대행해 드립니다.
-            </p>
+            <div id="plant-db-list" class="plant-db-list"></div>
           </div>
         </div>
       </section>
@@ -426,12 +398,12 @@
             <h5>5. OAuth 클라이언트 ID 생성</h5>
             <p>[사용자 인증 정보] 탭에서 다시 <strong>[+ 사용자 인증 정보 만들기] &gt; [OAuth 클라이언트 ID]</strong>를 선택합니다.
               <br>• 애플리케이션 유형: <strong>웹 애플리케이션 (Web Application)</strong>
-              <br>• 승인된 자바스크립트 원본(Origin): 로컬에서 파일로 실행할 경우 <code>http://localhost</code> 또는 <code>http://127.0.0.1</code>을 입력합니다. (나중에 GitHub Pages 등으로 무료 배포 시 해당 배포 도메인을 추가해 줍니다.)
+              <br>• 승인된 자바스크립트 원본(Origin): 로컬 서버로 실행할 경우 <code>http://localhost</code> 또는 <code>http://127.0.0.1</code>을 입력합니다. 파일을 더블클릭한 <code>file://</code> 주소에서는 구글 로그인이 안정적으로 동작하지 않으므로, 나중에 GitHub Pages 등으로 무료 배포 시 해당 배포 도메인을 추가해 줍니다.
               <br>• 생성이 완료되면 <strong>Client ID</strong>가 발급되며 이를 복사합니다.</p>
           </li>
           <li>
             <h5>6. 프로그램에 입력 후 연동 완료!</h5>
-            <p>복사한 <strong>Client ID</strong>와 <strong>API Key</strong>를 본 프로그램의 설정 탭에 붙여넣고 [설정 저장] 후 [구글 계정 연동]을 누르면 완성됩니다!</p>
+            <p>복사한 <strong>Client ID</strong>와 <strong>API Key</strong>를 본 프로그램의 설정 탭에 붙여넣습니다. 이미 B 계정이 소유한 식물관리 캘린더를 쓰려면 Google Calendar &gt; 해당 캘린더 설정 &gt; [캘린더 통합]의 <strong>캘린더 ID</strong>도 함께 붙여넣고 [설정 저장] 후 [구글 계정 연동]을 누르면 완성됩니다.</p>
           </li>
         </ol>
       </div>
