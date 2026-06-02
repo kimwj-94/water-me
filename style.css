@@ -1,5 +1,5 @@
 /* ==========================================================================
-   '물 줘!' (Water Me!) Premium Style System
+   '💧물 줘!' Premium Style System
    Design Paradigm: Nature-Dark, Glassmorphism, Dynamic Micro-Animations
    ========================================================================== */
 
@@ -39,12 +39,52 @@
   --transition-bounce: all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
 }
 
+body.light-theme {
+  --bg-main: #eef7f2;
+  --bg-sidebar: rgba(247, 252, 249, 0.86);
+  --bg-card: rgba(255, 255, 255, 0.78);
+  --bg-card-hover: rgba(255, 255, 255, 0.94);
+  --border-glass: rgba(15, 23, 42, 0.08);
+  --border-glass-bright: rgba(15, 23, 42, 0.14);
+  --color-primary: #0284c7;
+  --color-secondary: #0ea5e9;
+  --color-accent: #059669;
+  --color-success: #047857;
+  --color-warning: #b45309;
+  --color-danger: #dc2626;
+  --text-main: #10231d;
+  --text-muted: #64748b;
+  --text-dark: #f8fafc;
+  --shadow-neon-primary: 0 0 18px rgba(2, 132, 199, 0.16);
+  --shadow-neon-accent: 0 0 18px rgba(5, 150, 105, 0.16);
+  --shadow-card: 0 14px 38px rgba(15, 23, 42, 0.12);
+}
+
+body.light-theme .brand h1,
+body.light-theme .welcome-msg h2 {
+  background: linear-gradient(135deg, #10231d, #047857);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+body.light-theme .bg-glow {
+  opacity: 0.18;
+}
+
+body.light-theme .warning-alert {
+  color: #78350f;
+}
+
 /* 2. Reset & Base Configurations */
 * {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
   -webkit-font-smoothing: antialiased;
+}
+
+html {
+  word-break: keep-all;
 }
 
 body {
@@ -54,6 +94,11 @@ body {
   min-height: 100vh;
   overflow-x: hidden;
   position: relative;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 3px;
 }
 
 /* 스크롤바 커스터마이징 */
@@ -245,6 +290,18 @@ body {
 .welcome-msg p {
   color: var(--text-muted);
   font-size: 0.95rem;
+}
+
+.top-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+}
+
+.top-actions .btn {
+  min-height: 44px;
 }
 
 /* 6. Typography & UI Components (Buttons, Inputs, Glass Cards) */
@@ -648,7 +705,7 @@ body {
   border: 1px solid var(--border-glass);
 }
 .btn-icon-only:hover {
-  color: white;
+  color: var(--text-main);
   background-color: rgba(255, 255, 255, 0.12);
   transform: translateY(-2px);
 }
@@ -1001,17 +1058,6 @@ body {
   line-height: 1.5;
 }
 
-/* 14. Data Backup Tab */
-.backup-container {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 2rem;
-}
-
-.backup-card {
-  height: 100%;
-}
-
 .card-header-icon.text-accent { color: var(--color-primary); }
 .card-header-icon.text-success { color: var(--color-accent); }
 
@@ -1052,22 +1098,7 @@ body {
   color: var(--color-warning);
 }
 
-.file-upload-wrapper {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-}
-
-.file-name-text {
-  font-size: 0.82rem;
-  color: var(--text-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 150px;
-}
-
-/* 14-1. Plant Database Tab */
+/* 14. Plant Database Tab */
 .plant-db-layout {
   display: grid;
   grid-template-columns: minmax(280px, 380px) 1fr;
@@ -1522,7 +1553,6 @@ body {
 /* 17. Responsive Web Design (Media Queries) */
 @media (max-width: 1024px) {
   .calendar-grid,
-  .backup-container,
   .plant-db-layout {
     grid-template-columns: 1fr;
   }
@@ -1564,9 +1594,13 @@ body {
   }
   .top-actions {
     width: 100%;
+    justify-content: flex-start;
   }
-  .top-actions button {
-    width: 100%;
+  .top-actions .btn:not(.btn-icon-only) {
+    flex: 1 1 130px;
+  }
+  .top-actions .btn-icon-only {
+    flex: 0 0 44px;
   }
   .filter-bar,
   .filter-actions {
@@ -1593,14 +1627,114 @@ body {
     padding: 1.4rem;
   }
   .calendar-card,
-  .backup-card,
   .banner-card {
     padding: 1.2rem;
   }
   .api-actions,
-  .file-upload-wrapper,
   .helper-buttons {
     flex-direction: column;
     align-items: stretch;
+  }
+}
+
+@media (max-width: 640px) {
+  body {
+    padding-bottom: 78px;
+  }
+
+  .bg-glow {
+    filter: blur(70px);
+  }
+
+  .sidebar {
+    position: fixed;
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    height: 68px;
+    padding: 0.4rem 0.6rem;
+    border-right: none;
+    border-top: 1px solid var(--border-glass-bright);
+    flex-direction: row;
+    justify-content: center;
+    z-index: 90;
+  }
+
+  .brand,
+  .sidebar-footer {
+    display: none;
+  }
+
+  .nav-menu {
+    width: 100%;
+    flex-direction: row;
+    justify-content: space-around;
+    gap: 0.35rem;
+  }
+
+  .nav-btn {
+    min-width: 0;
+    flex: 1;
+    padding: 0.55rem 0.35rem;
+    border-radius: 12px;
+  }
+
+  .main-content {
+    margin-left: 0;
+    padding: 1rem;
+  }
+
+  .welcome-msg h2 {
+    font-size: 1.25rem;
+  }
+
+  .welcome-msg p {
+    font-size: 0.82rem;
+  }
+
+  .summary-banner {
+    grid-template-columns: 1fr 1fr;
+    gap: 0.8rem;
+  }
+
+  .summary-item {
+    padding: 1rem 0.75rem;
+  }
+
+  .summary-number {
+    font-size: 1.8rem;
+  }
+
+  .summary-label {
+    font-size: 0.74rem;
+  }
+
+  .plant-table {
+    min-width: 760px;
+  }
+
+  #toast-container {
+    left: 1rem;
+    right: 1rem;
+    bottom: 5.2rem;
+  }
+
+  .toast {
+    min-width: 0;
+    max-width: none;
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
   }
 }

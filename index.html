@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>물 줘! 💧 - 스마트 식물 물주기 & 캘린더 관리</title>
+  <title>💧물 줘! - 스마트 식물 물주기 & 캘린더 관리</title>
   <!-- Google Fonts & Material Icons -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -28,30 +28,26 @@
     <aside class="sidebar">
       <div class="brand">
         <span class="material-icons-round brand-icon">water_drop</span>
-        <h1>물 줘!</h1>
+        <h1>💧물 줘!</h1>
       </div>
       
       <nav class="nav-menu">
-        <button class="nav-btn active" data-tab="dashboard">
+        <button class="nav-btn active" data-tab="dashboard" title="대시보드">
           <span class="material-icons-round">grid_view</span>
           대시보드
         </button>
-        <button class="nav-btn" data-tab="plants-list">
+        <button class="nav-btn" data-tab="plants-list" title="식물 목록">
           <span class="material-icons-round">local_florist</span>
           식물 목록
         </button>
-        <button class="nav-btn" data-tab="calendar-setting">
-          <span class="material-icons-round">calendar_today</span>
-          캘린더 연동
-        </button>
-        <button class="nav-btn" data-tab="plant-database">
+        <button class="nav-btn" data-tab="plant-database" title="식물 도감">
           <span class="material-icons-round">menu_book</span>
           식물 도감
         </button>
       </nav>
 
       <div class="sidebar-footer">
-        <p class="copyright">© 2026 물 줘! PlantCare</p>
+        <p class="copyright">© 2026 💧물 줘!</p>
         <p class="version">v1.0.0 (Portable)</p>
       </div>
     </aside>
@@ -65,9 +61,19 @@
           <p>오늘도 식물들과 함께 싱그러운 하루 되세요! 🌱</p>
         </div>
         <div class="top-actions">
-          <button id="btn-add-plant-trigger" class="btn btn-primary">
-            <span class="material-icons-round">add</span>
-            새 화분 등록
+          <button id="btn-google-login" class="btn btn-primary" disabled>
+            <span class="brand-google-icon">G</span>
+            구글 로그인
+          </button>
+          <button id="btn-sync-calendar" class="btn btn-accent" disabled>
+            <span class="material-icons-round">cloud_sync</span>
+            저장
+          </button>
+          <button id="btn-theme-toggle" class="btn btn-icon-only" title="테마 변경">
+            <span class="material-icons-round">light_mode</span>
+          </button>
+          <button id="btn-settings-open" class="btn btn-icon-only" title="설정">
+            <span class="material-icons-round">settings</span>
           </button>
         </div>
       </header>
@@ -98,6 +104,10 @@
         <div class="filter-bar">
           <h3>내 화분 대시보드</h3>
           <div class="filter-actions">
+            <button id="btn-add-plant-trigger" class="btn btn-primary">
+              <span class="material-icons-round">add</span>
+              새 화분 등록
+            </button>
             <div class="search-input-wrapper">
               <span class="material-icons-round">search</span>
               <input type="text" id="search-plant" placeholder="식물 이름 또는 별명 검색...">
@@ -117,7 +127,7 @@
           <div class="empty-state" id="dashboard-empty-state">
             <span class="material-icons-round empty-icon">energy_savings_leaf</span>
             <h3>등록된 화분이 없습니다</h3>
-            <p>우측 상단의 '새 화분 등록' 버튼을 눌러 첫 식물을 키워보세요!</p>
+            <p>대시보드의 '새 화분 등록' 버튼을 눌러 첫 식물을 키워보세요!</p>
           </div>
         </div>
       </section>
@@ -156,67 +166,7 @@
         </div>
       </section>
 
-      <!-- 탭 3: 캘린더 연동 -->
-      <section id="tab-calendar-setting" class="tab-content">
-        <div class="section-header">
-          <div>
-            <h3>구글 캘린더 연동</h3>
-            <p>물주기 일정을 지정한 구글 캘린더에 안정적으로 저장하고 여러 기기에서 확인합니다.</p>
-          </div>
-        </div>
-
-        <div class="calendar-grid single-column">
-          <!-- 1. 구글 API 설정 패널 -->
-          <div class="glass-card calendar-card">
-            <div class="card-header">
-              <span class="material-icons-round card-header-icon" style="color: #4285F4;">calendar_today</span>
-              <h4>1단계: 구글 캘린더 API 설정 (나만의 안전한 연결)</h4>
-            </div>
-            <div class="card-body">
-              <p class="description-text">
-                이 앱은 식물 관리는 더블클릭으로도 가능하지만, 구글 연동은 localhost 또는 GitHub Pages 같은 웹 주소에서 실행해야 안정적으로 동작합니다. 구글 서버와 통신하려면 사용자 고유의 구글 API Credential(무료)이 필요합니다.<br>
-                <a href="#how-to-google" class="accent-link" id="link-show-guide">구글 API 키 발급 가이드 보기</a>
-              </p>
-              
-              <div class="form-group">
-                <label for="google-client-id">Google Client ID</label>
-                <input type="text" id="google-client-id" class="form-control" placeholder="12345678-abc.apps.googleusercontent.com 형식의 클라이언트 ID">
-              </div>
-
-              <div class="form-group">
-                <label for="google-api-key">Google API Key</label>
-                <input type="password" id="google-api-key" class="form-control" placeholder="AIzaSy... 형식의 API Key">
-              </div>
-
-              <div class="form-group">
-                <label for="google-calendar-id">식물관리 캘린더 ID (권장)</label>
-                <input type="text" id="google-calendar-id" class="form-control" placeholder="사용할 구글 캘린더 ID를 붙여넣으면 이 캘린더만 사용합니다">
-                <p class="field-help">비워두면 '물 줘! 식물 관리' 이름의 캘린더를 자동으로 찾고, 없으면 새로 만듭니다.</p>
-              </div>
-
-              <div class="api-actions">
-                <button id="btn-save-credentials" class="btn btn-secondary">설정 저장</button>
-                <button id="btn-google-login" class="btn btn-primary" disabled>
-                  <span class="brand-google-icon">G</span> 구글 계정 연동
-                </button>
-                <button id="btn-google-logout" class="btn btn-danger hidden">로그아웃</button>
-              </div>
-
-              <div class="sync-status-box" id="google-sync-box">
-                <span class="status-indicator status-offline"></span>
-                <span class="status-text">구글 서비스 미연동 상태</span>
-              </div>
-              
-              <button id="btn-sync-calendar" class="btn btn-accent w-full mt-4" disabled>
-                <span class="material-icons-round">sync</span>
-                구글 캘린더 일정 전체 재생성
-              </button>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- 탭 4: 식물 도감 -->
+      <!-- 탭 3: 식물 도감 -->
       <section id="tab-plant-database" class="tab-content">
         <div class="section-header">
           <div>
@@ -285,12 +235,56 @@
     </main>
   </div>
 
+  <!-- 구글 연동 설정 모달 -->
+  <div class="modal-overlay" id="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-modal-title">
+    <div class="modal-container glass-card settings-modal-container">
+      <div class="modal-header">
+        <h3 id="settings-modal-title">구글 캘린더 설정</h3>
+        <button id="btn-settings-close" class="modal-close-btn" aria-label="구글 캘린더 설정 닫기">
+          <span class="material-icons-round">close</span>
+        </button>
+      </div>
+      <div class="modal-body custom-scrollbar">
+        <p class="description-text">
+          처음 한 번만 API 정보를 저장하면 이후에는 상단의 구글 로그인 버튼으로 중앙 데이터를 불러옵니다.
+          <a href="#how-to-google" class="accent-link" id="link-show-guide">구글 API 키 발급 가이드 보기</a>
+        </p>
+        
+        <div class="form-group">
+          <label for="google-client-id">Google Client ID</label>
+          <input type="text" id="google-client-id" class="form-control" placeholder="12345678-abc.apps.googleusercontent.com 형식의 클라이언트 ID">
+        </div>
+
+        <div class="form-group">
+          <label for="google-api-key">Google API Key</label>
+          <input type="password" id="google-api-key" class="form-control" placeholder="AIzaSy... 형식의 API Key">
+        </div>
+
+        <div class="form-group">
+          <label for="google-calendar-id">식물관리 캘린더 ID (권장)</label>
+          <input type="text" id="google-calendar-id" class="form-control" placeholder="사용할 구글 캘린더 ID를 붙여넣으면 이 캘린더만 사용합니다">
+          <p class="field-help">'💧물 줘! 식물 관리' 캘린더를 직접 만든 뒤 캘린더 ID를 붙여넣는 것을 권장합니다. 비워두면 같은 이름의 기존 캘린더만 찾습니다.</p>
+        </div>
+
+        <div class="api-actions">
+          <button id="btn-save-credentials" class="btn btn-secondary">설정 저장</button>
+          <button id="btn-google-logout" class="btn btn-danger hidden">로그아웃</button>
+        </div>
+
+        <div class="sync-status-box" id="google-sync-box">
+          <span class="status-indicator status-offline"></span>
+          <span class="status-text">구글 서비스 미연동 상태</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- 식물 추가/수정 모달 -->
-  <div class="modal-overlay" id="plant-modal">
+  <div class="modal-overlay" id="plant-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
     <div class="modal-container glass-card">
       <div class="modal-header">
         <h3 id="modal-title">새 화분 등록하기</h3>
-        <button id="btn-modal-close" class="modal-close-btn">
+        <button id="btn-modal-close" class="modal-close-btn" aria-label="화분 등록 창 닫기">
           <span class="material-icons-round">close</span>
         </button>
       </div>
@@ -373,11 +367,11 @@
   </div>
 
   <!-- 구글 API 가이드 모달 -->
-  <div class="modal-overlay" id="guide-modal">
+  <div class="modal-overlay" id="guide-modal" role="dialog" aria-modal="true" aria-labelledby="guide-modal-title">
     <div class="modal-container glass-card guide-modal-container">
       <div class="modal-header">
-        <h3>🔑 구글 API Credentials 무료 발급 가이드</h3>
-        <button id="btn-guide-close" class="modal-close-btn">
+        <h3 id="guide-modal-title">🔑 구글 API Credentials 무료 발급 가이드</h3>
+        <button id="btn-guide-close" class="modal-close-btn" aria-label="구글 API 가이드 닫기">
           <span class="material-icons-round">close</span>
         </button>
       </div>
@@ -385,7 +379,7 @@
         <ol class="guide-list">
           <li>
             <h5>1. 구글 클라우드 콘솔 접속</h5>
-            <p><a href="https://console.cloud.google.com" target="_blank" class="accent-link">Google Cloud Console</a>에 본인의 구글 계정으로 로그인한 뒤, 상단에서 <strong>[새 프로젝트 생성]</strong>을 진행합니다.</p>
+            <p><a href="https://console.cloud.google.com" target="_blank" rel="noopener noreferrer" class="accent-link">Google Cloud Console</a>에 본인의 구글 계정으로 로그인한 뒤, 상단에서 <strong>[새 프로젝트 생성]</strong>을 진행합니다.</p>
           </li>
           <li>
             <h5>2. API 및 서비스 활성화</h5>
@@ -411,7 +405,7 @@
           </li>
           <li>
             <h5>6. 프로그램에 입력 후 연동 완료!</h5>
-            <p>복사한 <strong>Client ID</strong>와 <strong>API Key</strong>를 본 프로그램의 설정 탭에 붙여넣습니다. 이미 사용할 식물관리 캘린더가 있다면 Google Calendar &gt; 해당 캘린더 설정 &gt; [캘린더 통합]의 <strong>캘린더 ID</strong>도 함께 붙여넣고 [설정 저장] 후 [구글 계정 연동]을 누르면 완성됩니다.</p>
+            <p>복사한 <strong>Client ID</strong>와 <strong>API Key</strong>를 본 프로그램 우측 상단 톱니바퀴 설정에 붙여넣습니다. 이미 사용할 <strong>💧물 줘!</strong> 캘린더가 있다면 Google Calendar &gt; 해당 캘린더 설정 &gt; [캘린더 통합]의 <strong>캘린더 ID</strong>도 함께 붙여넣고 [설정 저장] 후 상단 [구글 로그인]을 누르면 완성됩니다.</p>
           </li>
         </ol>
       </div>
