@@ -10,6 +10,13 @@
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Noto+Sans+KR:wght@300;400;500;700;900&display=swap" rel="stylesheet">
   <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet">
   
+  <!-- PWA -->
+  <link rel="manifest" href="./manifest.json">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="물 줘!">
+  <meta name="theme-color" content="#4fc3f7">
+
   <!-- CSS Stylesheet -->
   <link rel="stylesheet" href="./style.css">
   
@@ -67,7 +74,7 @@
           </button>
           <button id="btn-sync-calendar" class="btn btn-accent" disabled>
             <span class="material-icons-round">cloud_sync</span>
-            저장
+            전체 동기화
           </button>
           <button id="btn-theme-toggle" class="btn btn-icon-only" title="테마 변경">
             <span class="material-icons-round">light_mode</span>
@@ -418,5 +425,14 @@
   <!-- Javascript Logic -->
   <script src="./plants-db.js"></script>
   <script src="./app.js"></script>
+
+  <!-- PWA 서비스워커 등록 -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js').catch(() => {});
+      });
+    }
+  </script>
 </body>
 </html>

@@ -1,0 +1,33 @@
+{
+  "name": "💧물 줘! - 식물 물주기 관리",
+  "short_name": "물 줘!",
+  "description": "구글 캘린더 연동 스마트 화분 물주기 알림 앱",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#0f1117",
+  "theme_color": "#4fc3f7",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "오늘 물 줄 화분 보기",
+      "short_name": "오늘 물주기",
+      "description": "오늘 물을 줘야 하는 화분 목록을 바로 확인합니다",
+      "url": "./index.html?filter=water-today",
+      "icons": [{ "src": "icon-192.png", "sizes": "192x192" }]
+    }
+  ]
+}

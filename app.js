@@ -9,6 +9,7 @@ let plantDatabase = [];
 
 // --- 전역 상태 관리 ---
 let plants = [];
+let deletedPlantIds = {};   // { plantId: ISO timestamp } — tombstone (S4)
 let activeTab = 'dashboard';
 let googleTokenClient = null;
 let googleAccessToken = null;
@@ -20,6 +21,8 @@ let cloudStateLoaded = false;
 let googleWorkQueue = Promise.resolve();
 let googleWorkDepth = 0;
 let midnightRefreshTimer = null;
+let isRefreshingToken = false;  // 토큰 갱신 중복 방지 (A2)
+let calendarRebuildTimer = null; // 캘린더 재생성 디바운스 (P1)
 
 const APP_STATE_MARKER = 'WATER_ME_APP_STATE';
 const APP_NAME = '💧물 줘!';
@@ -28,9 +31,12 @@ const LEGACY_CALENDAR_NAME = '물 줘! 식물 관리';
 const APP_STATE_SUMMARY = `${APP_NAME} 앱 데이터 (삭제 금지)`;
 const APP_STATE_DATE = '2099-01-01';
 const LOCAL_PLANTS_KEY = 'water_me_plants';
+const LOCAL_DELETED_KEY = 'water_me_deleted_ids';  // tombstone 로컬 저장 (S4)
 const LOCAL_CUSTOM_DB_KEY = 'water_me_custom_plant_database';
 const LOCAL_THEME_KEY = 'water_me_theme';
+const LOCAL_CREDENTIALS_KEY = 'water_me_google_credentials'; // P3: 키 통합
 const GOOGLE_BATCH_SIZE = 50;
+const CALENDAR_REBUILD_DEBOUNCE_MS = 2500; // P1
 
 // 구글 API 설정 정보
 let googleCredentials = {
@@ -156,32 +162,65 @@ function requestGoogleToken(prompt = 'consent') {
 }
 
 async function refreshGoogleAccessToken() {
+  // A2: 동시 갱신 요청 방지 — 이미 갱신 중이면 완료 대기
+  if (isRefreshingToken) {
+    await new Promise(resolve => {
+      const check = setInterval(() => {
+        if (!isRefreshingToken) { clearInterval(check); resolve(); }
+      }, 100);
+    });
+    return Boolean(googleAccessToken);
+  }
+  isRefreshingToken = true;
   try {
     await requestGoogleToken('');
     return true;
   } catch (err) {
     console.warn('구글 토큰 자동 갱신 실패:', err);
     return false;
+  } finally {
+    isRefreshingToken = false;
   }
 }
 
+function isGoogleRateLimitError(err) {
+  const code = err?.status || err?.result?.error?.code;
+  return code === 429 || code === 503;
+}
+
 async function executeGoogleRequest(requestFactory, options = {}) {
-  const { retryAuth = true } = options;
+  const { retryAuth = true, maxRetries = 3 } = options;
   if (googleAccessToken && gapi?.client?.setToken) {
     gapi.client.setToken({ access_token: googleAccessToken });
   }
 
-  try {
-    return await requestFactory();
-  } catch (err) {
-    if (retryAuth && isGoogleAuthError(err) && await refreshGoogleAccessToken()) {
-      if (googleAccessToken && gapi?.client?.setToken) {
-        gapi.client.setToken({ access_token: googleAccessToken });
+  let lastErr;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await requestFactory();
+    } catch (err) {
+      lastErr = err;
+      // A3: Rate limit → 지수 백오프
+      if (isGoogleRateLimitError(err) && attempt < maxRetries) {
+        const delay = Math.min(1000 * 2 ** attempt, 16000);
+        await new Promise(r => setTimeout(r, delay));
+        continue;
       }
-      return requestFactory();
+      // 인증 오류 → 토큰 갱신 후 1회 재시도
+      if (retryAuth && isGoogleAuthError(err) && await refreshGoogleAccessToken()) {
+        if (googleAccessToken && gapi?.client?.setToken) {
+          gapi.client.setToken({ access_token: googleAccessToken });
+        }
+        try {
+          return await requestFactory();
+        } catch (retryErr) {
+          throw retryErr;
+        }
+      }
+      throw err;
     }
-    throw err;
   }
+  throw lastErr;
 }
 
 async function runGoogleBatch(requestFactories, fallbackRunner) {
@@ -236,20 +275,67 @@ function sanitizePlantForState(plant) {
 
 function buildAppStatePayload() {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     updatedAt: nowStamp(),
     plants: plants.map(sanitizePlantForState).filter(plant => plant.name),
+    deletedPlantIds,  // S4: tombstone 포함
     customPlantDatabase: customPlantDatabase
       .map(entry => normalizePlantDbEntry(entry, 'custom'))
       .filter(entry => entry.name)
   };
 }
 
-function applyAppStatePayload(payload) {
+// S2: 클라우드 상태와 로컬 상태를 식물 단위로 병합
+// 규칙: 각 식물은 updatedAt이 더 최신인 쪽을 채택. tombstone이 있으면 삭제 우선.
+function mergeAppStates(localPlants, localDeleted, remotePlants, remoteDeleted) {
+  const mergedDeleted = { ...localDeleted };
+  // 원격 tombstone 병합 (더 최신 timestamp 채택)
+  Object.entries(remoteDeleted || {}).forEach(([id, ts]) => {
+    if (!mergedDeleted[id] || ts > mergedDeleted[id]) {
+      mergedDeleted[id] = ts;
+    }
+  });
+
+  const byId = new Map();
+  [...localPlants, ...remotePlants].forEach(plant => {
+    const existing = byId.get(plant.id);
+    if (!existing || (plant.updatedAt || '') > (existing.updatedAt || '')) {
+      byId.set(plant.id, plant);
+    }
+  });
+
+  // tombstone에 있는 식물 제거 (삭제 시각 > 식물 마지막 수정 시각인 경우만)
+  const mergedPlants = Array.from(byId.values()).filter(plant => {
+    const deletedAt = mergedDeleted[plant.id];
+    if (!deletedAt) return true;
+    return (plant.updatedAt || '') > deletedAt; // 삭제 후 재등록된 경우 유지
+  });
+
+  return { mergedPlants, mergedDeleted };
+}
+
+function applyAppStatePayload(payload, { merge = false } = {}) {
   const state = payload && typeof payload === 'object' ? payload : {};
-  plants = Array.isArray(state.plants)
-    ? state.plants.map(normalizePlant).filter(plant => plant.name)
+  const incomingPlants = Array.isArray(state.plants)
+    ? state.plants.map(normalizePlant).filter(p => p.name)
     : [];
+
+  // A1: 클라우드에서 식물 0개가 왔는데 로컬에 데이터가 있으면 병합 우선 적용, 무조건 삭제 방지
+  if (merge && plants.length > 0) {
+    const incomingDeleted = state.deletedPlantIds || {};
+    const { mergedPlants, mergedDeleted } = mergeAppStates(
+      plants, deletedPlantIds, incomingPlants, incomingDeleted
+    );
+    plants = mergedPlants;
+    deletedPlantIds = mergedDeleted;
+  } else if (incomingPlants.length > 0 || plants.length === 0) {
+    // 로컬이 비어있거나, 병합 모드가 아닌 초기 로드 시에만 단순 교체
+    plants = incomingPlants;
+    deletedPlantIds = state.deletedPlantIds || {};
+  } else {
+    // A1: 클라우드 0개, 로컬에 데이터 있음 — 사용자 확인
+    console.warn('클라우드 상태에 식물이 없습니다. 로컬 데이터를 유지합니다.');
+  }
 
   customPlantDatabase = Array.isArray(state.customPlantDatabase)
     ? state.customPlantDatabase
@@ -485,19 +571,27 @@ function initApp() {
   // 현재 날짜 갱신
   updateCurrentDateDisplay();
   loadThemePreference();
-  
+
   // 로컬 저장소에서 데이터 로드
   loadCustomPlantDatabase();
   loadPlantsFromStorage();
+  loadWateringHistory();   // 9-1: 히스토리 로드
   loadCredentialsFromStorage();
-  
+
   // 이벤트 리스너 등록
   registerEventListeners();
-  
+
+  // S1: 탭/앱 복귀 시 클라우드 자동 재동기화
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && isGoogleConnected()) {
+      pullAndMergeFromCloud({ quiet: true });
+    }
+  });
+
   // 화면 최초 렌더링
   renderApp();
   scheduleMidnightRefresh();
-  
+
   // Google API 비동기 로딩 대기 후 클라이언트 초기화 시도
   let sdkLoadAttempts = 0;
   const sdkCheckInterval = setInterval(() => {
@@ -507,6 +601,16 @@ function initApp() {
       tryInitGoogleAPI();
     }
   }, 1000);
+
+  // 딥링크 처리 (4단계 UX)
+  // ?action=water&plantId=XXX → 원터치 물주기
+  // ?filter=water-today       → PWA 바로가기에서 필터 적용
+  const initParams = new URLSearchParams(window.location.search);
+  const initFilter = initParams.get('filter');
+  if (initFilter && DOM.filterStatus) {
+    DOM.filterStatus.value = initFilter;
+  }
+  handleDeepLinkAction();
 }
 
 function updateCurrentDateDisplay() {
@@ -682,7 +786,6 @@ function loadPlantsFromStorage() {
       plants = Array.isArray(parsed)
         ? parsed.map(normalizePlant).filter(plant => plant.name)
         : [];
-      savePlantsToStorage();
     } catch (e) {
       showToast('식물 데이터를 불러오는 중 오류 발생. 초기화합니다.', 'error');
       plants = [];
@@ -690,11 +793,19 @@ function loadPlantsFromStorage() {
   } else {
     plants = [];
   }
+  // S4: tombstone 로드
+  try {
+    const savedDeleted = localStorage.getItem(LOCAL_DELETED_KEY);
+    deletedPlantIds = savedDeleted ? JSON.parse(savedDeleted) : {};
+  } catch (e) {
+    deletedPlantIds = {};
+  }
 }
 
 // 식물 정보 로컬 저장
 function savePlantsToStorage() {
   localStorage.setItem(LOCAL_PLANTS_KEY, JSON.stringify(plants.map(sanitizePlantForState)));
+  localStorage.setItem(LOCAL_DELETED_KEY, JSON.stringify(deletedPlantIds));
 }
 
 function isGoogleConnected() {
@@ -723,14 +834,57 @@ async function persistAppStateUnsafe(options = {}) {
     return;
   }
 
+  // S3: 저장 전 최신 클라우드 상태를 pull하여 병합한 뒤 push
+  await pullAndMergeFromCloud({ quiet: true });
+
   await saveAppStateToGoogleCalendar();
 
   if (rebuildCalendar) {
+    scheduleCalendarRebuild();
+  }
+}
+
+// P1: 캘린더 이벤트 재생성을 디바운스 처리 (연속 저장 시 마지막 1번만 실행)
+function scheduleCalendarRebuild() {
+  if (calendarRebuildTimer) clearTimeout(calendarRebuildTimer);
+  calendarRebuildTimer = setTimeout(async () => {
+    calendarRebuildTimer = null;
+    if (!isGoogleConnected()) return;
     await syncAllPlantsToGoogleCalendar({
       confirmFirst: false,
       saveStateFirst: false,
       quiet: true
     });
+  }, CALENDAR_REBUILD_DEBOUNCE_MS);
+}
+
+// S3 helper: 클라우드 최신 상태를 가져와 현재 로컬 상태에 병합
+async function pullAndMergeFromCloud({ quiet = false } = {}) {
+  if (!isGoogleConnected()) return;
+  try {
+    const stateEvents = await findAppStateEvents();
+    const parsedStates = stateEvents
+      .map(parseAppStateEvent)
+      .filter(Boolean)
+      .sort((a, b) => Date.parse(b.updatedAt || '') - Date.parse(a.updatedAt || ''));
+
+    if (parsedStates.length === 0) return;
+
+    const latest = parsedStates[0];
+    // 이미 같은 이벤트 ID이고 타임스탬프가 동일하면 재적용 불필요
+    if (latest.event.id === googleStateEventId &&
+        latest.payload.updatedAt === googleStateUpdatedAt) return;
+
+    googleStateEventId = latest.event.id;
+    applyAppStatePayload(latest.payload, { merge: true });
+    renderApp();
+
+    // 중복 상태 이벤트 정리
+    for (const stale of parsedStates.slice(1)) {
+      await deleteGoogleCalendarEvent(stale.event.id);
+    }
+  } catch (err) {
+    if (!quiet) console.warn('클라우드 병합 중 오류:', err);
   }
 }
 
@@ -884,13 +1038,26 @@ function updateCounters() {
 // 대시보드 그리드 렌더링
 function renderDashboard(filteredPlants) {
   DOM.dashboardPlantGrid.innerHTML = '';
-  
+
+  // 일괄 물주기 버튼 (오늘 줄 화분이 1개 이상일 때만 표시)
+  const dueCount = plants.filter(p => calculatePlantSchedule(p).dDay <= 0).length;
+  let batchBtn = document.getElementById('btn-water-all');
+  if (!batchBtn) {
+    batchBtn = document.createElement('button');
+    batchBtn.id = 'btn-water-all';
+    batchBtn.className = 'btn btn-accent btn-water-all';
+    batchBtn.innerHTML = '<span class="material-icons-round">water_drop</span> 오늘 물 줄 화분 모두 완료';
+    batchBtn.addEventListener('click', waterAllDuePlants);
+    DOM.dashboardPlantGrid.before(batchBtn);
+  }
+  batchBtn.style.display = dueCount > 0 ? '' : 'none';
+
   if (filteredPlants.length === 0) {
     DOM.dashboardEmptyState.classList.remove('hidden');
     DOM.dashboardPlantGrid.appendChild(DOM.dashboardEmptyState);
     return;
   }
-  
+
   DOM.dashboardEmptyState.classList.add('hidden');
   
   filteredPlants.forEach(plant => {
@@ -966,6 +1133,9 @@ function renderDashboard(filteredPlants) {
           <span class="material-icons-round" style="font-size: 1.1rem;">water_drop</span>
           물 줬어요!
         </button>
+        <button class="btn btn-secondary btn-icon-only btn-snooze-card" data-id="${safePlantId}" title="하루 미루기">
+          <span class="material-icons-round" style="font-size: 1.1rem;">snooze</span>
+        </button>
         <button class="btn btn-icon-only btn-edit-card" data-id="${safePlantId}" title="수정">
           <span class="material-icons-round" style="font-size: 1.1rem;">edit</span>
         </button>
@@ -990,19 +1160,33 @@ function bindCardActionEvents() {
       waterPlant(plantId);
     });
   });
-  
+
+  // 9-2: 미루기 버튼
+  document.querySelectorAll('.btn-snooze-card').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const plantId = e.currentTarget.getAttribute('data-id');
+      snoozeWatering(plantId, 1);
+    });
+  });
+
   document.querySelectorAll('.btn-edit-card').forEach(btn => {
     btn.addEventListener('click', (e) => {
       const plantId = e.currentTarget.getAttribute('data-id');
       openPlantModal(plantId);
     });
   });
-  
+
   document.querySelectorAll('.btn-delete-card').forEach(btn => {
     btn.addEventListener('click', (e) => {
       const plantId = e.currentTarget.getAttribute('data-id');
       deletePlant(plantId);
     });
+  });
+
+  // 9-6: 모바일 스와이프 → 물주기
+  document.querySelectorAll('.plant-card').forEach(card => {
+    const plantId = card.querySelector('.btn-water-action')?.getAttribute('data-id');
+    if (plantId) addSwipeToWater(card, plantId);
   });
 }
 
@@ -1096,11 +1280,12 @@ function bindTableActionEvents() {
 async function waterPlant(id) {
   const index = plants.findIndex(p => p.id === id);
   if (index === -1) return;
-  
+
   const todayStr = formatLocalDate();
   plants[index].lastWatered = todayStr;
   plants[index].updatedAt = nowStamp();
-  
+  recordWateringHistory(id, todayStr);  // 9-1: 히스토리 기록
+
   showToast(`'${plants[index].nickname || plants[index].name}'에게 물을 주었습니다! 💧`, 'success');
   await persistAppState({ quiet: true });
 }
@@ -1108,10 +1293,12 @@ async function waterPlant(id) {
 async function deletePlant(id) {
   const index = plants.findIndex(p => p.id === id);
   if (index === -1) return;
-  
+
   const name = plants[index].nickname || plants[index].name;
-  
+
   if (confirm(`'${name}' 화분을 정말 삭제하시겠습니까?`)) {
+    // S4: 삭제 tombstone 기록 — 다른 기기에서 병합 시 이 식물을 제거
+    deletedPlantIds[id] = nowStamp();
     plants.splice(index, 1);
     showToast(`'${name}' 화분이 삭제되었습니다.`, 'warning');
     await persistAppState({ quiet: true });
@@ -1190,7 +1377,7 @@ async function handlePlantFormSubmit(e) {
     }
   } else {
     const newPlant = {
-      id: Date.now().toString(),
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,  // A4: 충돌 방지
       name,
       nickname,
       waterPeriod,
@@ -1421,7 +1608,8 @@ function searchPlantOnWeb(platform) {
 // ==========================================================================
 
 function loadCredentialsFromStorage() {
-  const saved = localStorage.getItem('water_me_google_credentials');
+  // P3: water_me_google_credentials 단일 키로 통합 (calendarId도 여기에 포함)
+  const saved = localStorage.getItem(LOCAL_CREDENTIALS_KEY);
   const defaultConfig = window.waterMeGoogleConfig || {};
   DOM.btnGoogleLogin.disabled = false;
   if (saved) {
@@ -1430,13 +1618,13 @@ function loadCredentialsFromStorage() {
       googleCredentials = creds;
       DOM.googleClientId.value = creds.clientId || '';
       DOM.googleApiKey.value = creds.apiKey || '';
+      // 레거시 키와 호환: 기존 water_me_google_calendar_id도 읽음
       DOM.googleCalendarIdInput.value = creds.calendarId || localStorage.getItem('water_me_google_calendar_id') || '';
-      
       if (creds.clientId && creds.apiKey && !isFileProtocol()) {
         DOM.btnGoogleLogin.disabled = false;
       }
     } catch (e) {
-      localStorage.removeItem('water_me_google_credentials');
+      localStorage.removeItem(LOCAL_CREDENTIALS_KEY);
     }
   } else if (defaultConfig.clientId && defaultConfig.apiKey) {
     googleCredentials = {
@@ -1465,14 +1653,10 @@ function saveCredentials() {
   }
   
   googleCredentials = { clientId, apiKey, calendarId };
-  localStorage.setItem('water_me_google_credentials', JSON.stringify(googleCredentials));
-  if (calendarId) {
-    googleCalendarId = calendarId;
-    localStorage.setItem('water_me_google_calendar_id', calendarId);
-  } else {
-    googleCalendarId = null;
-    localStorage.removeItem('water_me_google_calendar_id');
-  }
+  localStorage.setItem(LOCAL_CREDENTIALS_KEY, JSON.stringify(googleCredentials));
+  // P3: 레거시 키 제거 (calendarId는 credentials에 통합)
+  localStorage.removeItem('water_me_google_calendar_id');
+  googleCalendarId = calendarId || null;
   
   DOM.btnGoogleLogin.disabled = isFileProtocol();
   if (isFileProtocol()) {
@@ -1564,34 +1748,46 @@ function handleGoogleLogin() {
     showToast('구글 API가 아직 준비되지 않았습니다. 잠시 후 다시 누르거나 API 설정을 확인해 주세요.', 'error');
     return;
   }
-  requestGoogleToken('consent')
+  // A5: 재방문 사용자는 silent 먼저 시도, 실패 시 consent 팝업
+  requestGoogleToken('')
     .then(onGoogleAuthSuccess)
-    .catch((err) => {
-      console.error('Google OAuth Error:', err);
-      showToast('구글 인증에 실패했습니다. 계정 권한과 승인된 주소를 확인해 주세요.', 'error');
+    .catch(() => {
+      requestGoogleToken('consent')
+        .then(onGoogleAuthSuccess)
+        .catch((err) => {
+          console.error('Google OAuth Error:', err);
+          showToast('구글 인증에 실패했습니다. 계정 권한과 승인된 주소를 확인해 주세요.', 'error');
+        });
     });
 }
 
 function handleGoogleLogout() {
-  if (googleAccessToken) {
-    const clearGoogleState = () => {
-      googleAccessToken = null;
-      googleApiClientReady = typeof gapi !== 'undefined' && Boolean(gapi?.client?.calendar);
-      DOM.googleSyncBox.innerHTML = `
-        <span class="status-indicator status-offline"></span>
-        <span class="status-text">구글 연동 해제됨</span>
-      `;
-      DOM.btnGoogleLogin.classList.remove('hidden');
-      DOM.btnGoogleLogout.classList.add('hidden');
-      DOM.btnSyncCalendar.disabled = true;
-      showToast('구글 계정이 안전하게 연동 해제되었습니다.', 'warning');
-    };
+  if (!googleAccessToken) return;
 
-    if (typeof google !== 'undefined' && google?.accounts?.oauth2?.revoke) {
-      google.accounts.oauth2.revoke(googleAccessToken, clearGoogleState);
-    } else {
-      clearGoogleState();
-    }
+  const clearGoogleState = () => {
+    // S5: 모든 구글 관련 상태 완전 초기화 (다른 계정 재로그인 시 오작동 방지)
+    googleAccessToken = null;
+    googleStateEventId = null;
+    googleStateUpdatedAt = null;
+    googleCalendarId = null;
+    cloudStateLoaded = false;
+    googleApiClientReady = typeof gapi !== 'undefined' && Boolean(gapi?.client?.calendar);
+    if (calendarRebuildTimer) { clearTimeout(calendarRebuildTimer); calendarRebuildTimer = null; }
+
+    DOM.googleSyncBox.innerHTML = `
+      <span class="status-indicator status-offline"></span>
+      <span class="status-text">구글 연동 해제됨</span>
+    `;
+    DOM.btnGoogleLogin.classList.remove('hidden');
+    DOM.btnGoogleLogout.classList.add('hidden');
+    DOM.btnSyncCalendar.disabled = true;
+    showToast('구글 계정이 안전하게 연동 해제되었습니다.', 'warning');
+  };
+
+  if (typeof google !== 'undefined' && google?.accounts?.oauth2?.revoke) {
+    google.accounts.oauth2.revoke(googleAccessToken, clearGoogleState);
+  } else {
+    clearGoogleState();
   }
 }
 
@@ -1636,8 +1832,7 @@ async function setupWaterMeCalendar() {
         googleCalendarId = preferredCalendarId;
         googleCredentials.calendarId = preferredCalendarId;
         DOM.googleCalendarIdInput.value = preferredCalendarId;
-        localStorage.setItem('water_me_google_calendar_id', preferredCalendarId);
-        localStorage.setItem('water_me_google_credentials', JSON.stringify(googleCredentials));
+        localStorage.setItem(LOCAL_CREDENTIALS_KEY, JSON.stringify(googleCredentials));
         showToast(`고정 캘린더 '${calendarEntry.result.summary || preferredCalendarId}'를 사용합니다.`, 'success');
         return;
       } catch (err) {
@@ -1654,7 +1849,8 @@ async function setupWaterMeCalendar() {
     
     if (existing) {
       googleCalendarId = existing.id;
-      localStorage.setItem('water_me_google_calendar_id', googleCalendarId);
+      googleCredentials.calendarId = googleCalendarId;
+      localStorage.setItem(LOCAL_CREDENTIALS_KEY, JSON.stringify(googleCredentials));
     } else {
       throw new Error(`식물관리 캘린더 ID가 필요합니다. Google Calendar에서 '${DEFAULT_CALENDAR_NAME}' 캘린더를 만든 뒤 캘린더 ID를 설정에 저장해 주세요.`);
     }
@@ -1757,7 +1953,8 @@ async function loadAppStateFromGoogleCalendar() {
   if (parsedStates.length > 0) {
     const latest = parsedStates[0];
     googleStateEventId = latest.event.id;
-    applyAppStatePayload(latest.payload);
+    // S2: 초기 로드 시 로컬과 병합 (로컬에 미동기 데이터가 있을 수 있으므로)
+    applyAppStatePayload(latest.payload, { merge: cloudStateLoaded });
     cloudStateLoaded = true;
     renderApp();
     showToast('구글 캘린더의 중앙 데이터를 불러왔습니다.', 'success');
@@ -1883,13 +2080,6 @@ async function fetchWaterMeCalendarEvents() {
     .filter(item => item.plant);
 }
 
-async function syncPlantsFromGoogleCalendar() {
-  if (!googleAccessToken || !googleCalendarId) return;
-  if (!gapi?.client?.calendar) return;
-  
-  await loadAppStateFromGoogleCalendar();
-}
-
 function buildGoogleCalendarEventResource(plant, eventDateStr) {
   const eventName = `[${APP_NAME}] ${plant.nickname || plant.name}`;
   const startDateTime = `${eventDateStr}T08:00:00+09:00`;
@@ -1899,11 +2089,7 @@ function buildGoogleCalendarEventResource(plant, eventDateStr) {
     ? '계절 보정 꺼짐'
     : `${getSeasonLabel(effective.season)} 계절 보정 기준 ${effective.days}일 주기`;
   
-  const descriptionText = [
-    `'${plant.nickname || plant.name}' (${plant.name}) 화분에 물을 주는 날입니다.`,
-    seasonText,
-    `물주기 완료 후 ${APP_NAME} 앱에서 [물 줬어요!] 버튼을 누르면 다음 일정으로 자동 갱신됩니다.`
-  ].join('\n');
+  const descriptionText = buildDeepLinkDescription(plant, eventDateStr);
 
   return {
     summary: eventName,
@@ -2004,15 +2190,6 @@ async function createGoogleCalendarEvent(plant, options = {}) {
     console.error('구글 이벤트 생성 실패:', err);
     showToast('구글 캘린더 일정 생성에 실패했습니다.', 'error');
   }
-}
-
-// 구글 캘린더 일정 수정/갱신
-async function updateGoogleCalendarEvent(plant) {
-  if (!googleAccessToken || !googleCalendarId) return;
-  if (!gapi?.client?.calendar) return;
-  
-  gapi.client.setToken({ access_token: googleAccessToken });
-  await createGoogleCalendarEvent(plant);
 }
 
 // 구글 캘린더 일정 삭제
@@ -2117,22 +2294,27 @@ async function findAllWaterMeCalendarEvents() {
   if (!gapi?.client?.calendar) return [];
 
   const byId = new Map();
-  const queries = [
-    { privateExtendedProperty: 'waterMeGenerated=true' },
-    { q: 'WATER_ME_METADATA' },
-    { q: `[${APP_NAME}]` },
-    { q: '[물주기]' },
-    { q: '물주기' }
-  ];
 
-  for (const query of queries) {
+  // P2: privateExtendedProperty를 1차 필터로 사용(가장 정확) — 여기서 못 잡으면 텍스트 검색 보완
+  const primaryQuery = { privateExtendedProperty: 'waterMeGenerated=true' };
+  try {
+    const primaryEvents = await listGoogleCalendarEvents(primaryQuery);
+    primaryEvents.filter(isWaterMeEvent).forEach(e => byId.set(e.id, e));
+  } catch (err) {
+    console.error('물 줘 일정 1차 검색 실패:', err);
+  }
+
+  // 레거시 이벤트(이전 버전 포맷) 보완 검색 — 2개만 사용
+  const fallbackQueries = [
+    { q: 'WATER_ME_METADATA' },
+    { q: `[${APP_NAME}]` }
+  ];
+  for (const query of fallbackQueries) {
     try {
       const events = await listGoogleCalendarEvents(query);
-      events
-        .filter(isWaterMeEvent)
-        .forEach(event => byId.set(event.id, event));
+      events.filter(isWaterMeEvent).forEach(e => byId.set(e.id, e));
     } catch (err) {
-      console.error('물 줘 일정 검색 실패:', err);
+      console.error('물 줘 일정 보완 검색 실패:', err);
     }
   }
 
@@ -2264,7 +2446,194 @@ async function syncAllPlantsToGoogleCalendarUnsafe(options = {}) {
 }
 
 // ==========================================================================
-// 9. Toast 시스템
+// 9. UX 편의성 기능
+// ==========================================================================
+
+// --------------------------------------------------------------------------
+// 9-1. 물주기 히스토리 (식물별 최근 10회 기록)
+// --------------------------------------------------------------------------
+
+const LOCAL_HISTORY_KEY = 'water_me_history';
+let wateringHistory = {};  // { plantId: ['2026-06-26', ...] }
+
+function loadWateringHistory() {
+  try {
+    const saved = localStorage.getItem(LOCAL_HISTORY_KEY);
+    wateringHistory = saved ? JSON.parse(saved) : {};
+  } catch (e) {
+    wateringHistory = {};
+  }
+}
+
+function saveWateringHistory() {
+  localStorage.setItem(LOCAL_HISTORY_KEY, JSON.stringify(wateringHistory));
+}
+
+function recordWateringHistory(plantId, dateStr) {
+  if (!wateringHistory[plantId]) wateringHistory[plantId] = [];
+  const list = wateringHistory[plantId];
+  if (list[0] === dateStr) return; // 오늘 이미 기록됨
+  list.unshift(dateStr);
+  if (list.length > 10) list.length = 10;
+  saveWateringHistory();
+}
+
+function getWateringHistory(plantId) {
+  return wateringHistory[plantId] || [];
+}
+
+// --------------------------------------------------------------------------
+// 9-2. 물주기 미루기 (Snooze)
+// --------------------------------------------------------------------------
+
+async function snoozeWatering(plantId, days = 1) {
+  const index = plants.findIndex(p => p.id === plantId);
+  if (index === -1) return;
+  const plant = plants[index];
+  const newLastWatered = addDaysToDateString(plant.lastWatered, days);
+  plants[index].lastWatered = newLastWatered;
+  plants[index].updatedAt = nowStamp();
+  showToast(`'${plant.nickname || plant.name}' 물주기를 ${days}일 미뤘습니다.`, 'info');
+  await persistAppState({ quiet: true });
+}
+
+// --------------------------------------------------------------------------
+// 9-3. 일괄 물주기 (오늘 줄 화분 전체)
+// --------------------------------------------------------------------------
+
+async function waterAllDuePlants() {
+  const todayStr = formatLocalDate();
+  const duePlants = plants.filter(p => {
+    const { dDay } = calculatePlantSchedule(p);
+    return dDay <= 0;
+  });
+  if (duePlants.length === 0) {
+    showToast('오늘 물 줄 화분이 없습니다. 🌿', 'info');
+    return;
+  }
+  if (!confirm(`오늘 물 줄 화분 ${duePlants.length}개에 모두 물을 줬다고 기록할까요?`)) return;
+
+  duePlants.forEach(p => {
+    const idx = plants.findIndex(pl => pl.id === p.id);
+    if (idx === -1) return;
+    plants[idx].lastWatered = todayStr;
+    plants[idx].updatedAt = nowStamp();
+    recordWateringHistory(p.id, todayStr);
+  });
+  showToast(`${duePlants.length}개 화분에 물주기 완료! 💧`, 'success');
+  await persistAppState({ quiet: true });
+}
+
+// --------------------------------------------------------------------------
+// 9-4. 캘린더 딥링크 원터치 물주기
+// 캘린더 이벤트 설명에 ?action=water&plantId=XXX 링크를 포함시켜
+// 클릭 시 바로 해당 식물 물주기 처리
+// --------------------------------------------------------------------------
+
+function getDeepLinkUrl(plantId) {
+  const base = window.location.href.split('?')[0];
+  return `${base}?action=water&plantId=${encodeURIComponent(plantId)}`;
+}
+
+function handleDeepLinkAction() {
+  const params = new URLSearchParams(window.location.search);
+  const action = params.get('action');
+  const plantId = params.get('plantId');
+  if (action !== 'water' || !plantId) return;
+
+  // URL 파라미터 정리 (히스토리 교체)
+  const cleanUrl = window.location.pathname;
+  window.history.replaceState({}, '', cleanUrl);
+
+  // 식물 데이터가 아직 로드되지 않았을 수 있으므로 약간 대기
+  const tryWater = (attempts = 0) => {
+    const plant = plants.find(p => p.id === plantId);
+    if (plant) {
+      waterPlant(plantId).then(() => {
+        showToast(`'${plant.nickname || plant.name}' 캘린더 링크로 물주기 완료! 💧`, 'success');
+      });
+    } else if (attempts < 10) {
+      setTimeout(() => tryWater(attempts + 1), 500);
+    }
+  };
+  tryWater();
+}
+
+// --------------------------------------------------------------------------
+// 9-5. 캘린더 이벤트 설명에 딥링크 삽입 (buildGoogleCalendarEventResource 보조)
+// --------------------------------------------------------------------------
+
+function buildDeepLinkDescription(plant, eventDateStr) {
+  const effective = calculateEffectiveWaterPeriod(plant, eventDateStr);
+  const seasonText = plant.seasonalAdjustment === false
+    ? '계절 보정 꺼짐'
+    : `${getSeasonLabel(effective.season)} 계절 보정 기준 ${effective.days}일 주기`;
+  const deepLink = getDeepLinkUrl(plant.id);
+
+  return [
+    `'${plant.nickname || plant.name}' (${plant.name}) 화분에 물을 주는 날입니다.`,
+    seasonText,
+    '',
+    `✅ 물 줬으면 아래 링크를 탭하세요 (앱 자동 처리):`,
+    deepLink
+  ].join('\n');
+}
+
+// --------------------------------------------------------------------------
+// 9-6. 모바일 스와이프 제스처 (카드 오른쪽 스와이프 → 물주기)
+// --------------------------------------------------------------------------
+
+function addSwipeToWater(cardEl, plantId) {
+  let startX = 0;
+  let isDragging = false;
+
+  cardEl.addEventListener('pointerdown', e => {
+    startX = e.clientX;
+    isDragging = true;
+    cardEl.style.transition = 'none';
+  }, { passive: true });
+
+  cardEl.addEventListener('pointermove', e => {
+    if (!isDragging) return;
+    const dx = e.clientX - startX;
+    if (dx > 0 && dx < 120) {
+      cardEl.style.transform = `translateX(${dx}px)`;
+      cardEl.style.opacity = `${1 - dx / 240}`;
+    }
+  }, { passive: true });
+
+  const endSwipe = async (e) => {
+    if (!isDragging) return;
+    isDragging = false;
+    const dx = e.clientX - startX;
+    cardEl.style.transition = 'transform 0.25s, opacity 0.25s';
+
+    if (dx >= 80) {
+      cardEl.style.transform = 'translateX(120px)';
+      cardEl.style.opacity = '0';
+      await waterPlant(plantId);
+      setTimeout(() => {
+        cardEl.style.transform = '';
+        cardEl.style.opacity = '';
+      }, 300);
+    } else {
+      cardEl.style.transform = '';
+      cardEl.style.opacity = '';
+    }
+  };
+
+  cardEl.addEventListener('pointerup', endSwipe, { passive: true });
+  cardEl.addEventListener('pointercancel', () => {
+    if (!isDragging) return;
+    isDragging = false;
+    cardEl.style.transition = 'transform 0.25s, opacity 0.25s';
+    cardEl.style.transform = '';
+    cardEl.style.opacity = '';
+  }, { passive: true });
+}
+
+// ==========================================================================
+// 10. Toast 시스템
 // ==========================================================================
 
 function showToast(message, type = 'success') {

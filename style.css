@@ -1738,3 +1738,52 @@ body {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ==========================================================================
+   UX 편의성 추가 스타일 (v2)
+   ========================================================================== */
+
+/* 일괄 물주기 버튼 */
+.btn-water-all {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1.2rem;
+  padding: 0.65rem 1.4rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  border-radius: 12px;
+  background: linear-gradient(135deg, var(--color-accent), var(--color-primary));
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  box-shadow: var(--shadow-neon-accent);
+  transition: var(--transition-smooth);
+}
+.btn-water-all:hover {
+  opacity: 0.88;
+  transform: translateY(-1px);
+}
+
+/* 미루기(snooze) 버튼 — 카드 액션 영역 */
+.btn-snooze-card {
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.28);
+  color: var(--color-warning);
+}
+.btn-snooze-card:hover {
+  background: rgba(245, 158, 11, 0.22);
+}
+
+/* 스와이프 힌트 — 모바일에서만 표시 */
+@media (hover: none) and (pointer: coarse) {
+  .plant-card::after {
+    content: '← 스와이프하여 물주기';
+    display: block;
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    text-align: right;
+    margin-top: 0.4rem;
+    opacity: 0.55;
+  }
+}
