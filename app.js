@@ -822,7 +822,7 @@ async function persistAppState(options = {}) {
 }
 
 async function persistAppStateUnsafe(options = {}) {
-  const { rebuildCalendar = true, quiet = false } = options;
+  const { quiet = false } = options;
   savePlantsToStorage();
   saveCustomPlantDatabase();
   renderApp();
@@ -836,15 +836,10 @@ async function persistAppStateUnsafe(options = {}) {
 
   // S3: 저장 전 최신 클라우드 상태를 pull하여 병합한 뒤 push
   await pullAndMergeFromCloud({ quiet: true });
-
   await saveAppStateToGoogleCalendar();
-
-  if (rebuildCalendar) {
-    scheduleCalendarRebuild();
-  }
 }
 
-// P1: 캘린더 이벤트 재생성을 디바운스 처리 (연속 저장 시 마지막 1번만 실행)
+// P1: 캘린더 이벤트 재생성 디바운스 — 수동 전체 동기화 버튼에서만 사용
 function scheduleCalendarRebuild() {
   if (calendarRebuildTimer) clearTimeout(calendarRebuildTimer);
   calendarRebuildTimer = setTimeout(async () => {
@@ -856,6 +851,16 @@ function scheduleCalendarRebuild() {
       quiet: true
     });
   }, CALENDAR_REBUILD_DEBOUNCE_MS);
+}
+
+// 특정 식물 1개의 캘린더 이벤트만 갱신 (전체 재생성 대신 사용)
+// 전체 재생성보다 훨씬 빠르고, 다른 식물 이벤트에 영향 없음
+async function rebuildCalendarForPlant(plant) {
+  if (!isGoogleConnected()) return;
+  return runGoogleWork(
+    `'${plant.nickname || plant.name}' 캘린더 일정 업데이트 중...`,
+    () => createGoogleCalendarEvent(plant)  // 내부에서 이 식물 이전 이벤트 삭제 후 재생성
+  );
 }
 
 // S3 helper: 클라우드 최신 상태를 가져와 현재 로컬 상태에 병합
@@ -1284,21 +1289,34 @@ async function waterPlant(id) {
   const todayStr = formatLocalDate();
   plants[index].lastWatered = todayStr;
   plants[index].updatedAt = nowStamp();
-  recordWateringHistory(id, todayStr);  // 9-1: 히스토리 기록
+  recordWateringHistory(id, todayStr);
 
-  showToast(`'${plants[index].nickname || plants[index].name}'에게 물을 주었습니다! 💧`, 'success');
+  const plant = plants[index];
+  showToast(`'${plant.nickname || plant.name}'에게 물을 주었습니다! 💧`, 'success');
+
+  // 상태 저장 (클라우드 상태 이벤트)
   await persistAppState({ quiet: true });
+  // 이 식물 캘린더 이벤트만 갱신 — 전체 재생성 없음
+  await rebuildCalendarForPlant(plant);
 }
 
 async function deletePlant(id) {
   const index = plants.findIndex(p => p.id === id);
   if (index === -1) return;
 
-  const name = plants[index].nickname || plants[index].name;
+  const plant = plants[index];
+  const name = plant.nickname || plant.name;
 
   if (confirm(`'${name}' 화분을 정말 삭제하시겠습니까?`)) {
-    // S4: 삭제 tombstone 기록 — 다른 기기에서 병합 시 이 식물을 제거
     deletedPlantIds[id] = nowStamp();
+
+    // 이 식물의 캘린더 이벤트만 삭제 (전체 재생성 불필요)
+    if (isGoogleConnected()) {
+      await runGoogleWork(`'${name}' 캘린더 일정 삭제 중...`, () =>
+        deleteGoogleCalendarEventsForPlant(plant, { quiet: true })
+      );
+    }
+
     plants.splice(index, 1);
     showToast(`'${name}' 화분이 삭제되었습니다.`, 'warning');
     await persistAppState({ quiet: true });
@@ -1370,14 +1388,15 @@ async function handlePlantFormSubmit(e) {
         seasonalAdjustment,
         updatedAt: nowStamp()
       };
-      
+      const updatedPlant = plants[index];
       closePlantModal();
       showToast('화분 정보가 수정되었습니다.', 'success');
       await persistAppState({ quiet: true });
+      await rebuildCalendarForPlant(updatedPlant);
     }
   } else {
     const newPlant = {
-      id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,  // A4: 충돌 방지
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       name,
       nickname,
       waterPeriod,
@@ -1387,11 +1406,11 @@ async function handlePlantFormSubmit(e) {
       seasonalAdjustment,
       updatedAt: nowStamp()
     };
-    
     plants.push(newPlant);
     closePlantModal();
     showToast(`새로운 화분 '${nickname || name}'가 등록되었습니다! 🌱`, 'success');
     await persistAppState({ quiet: true });
+    await rebuildCalendarForPlant(newPlant);
   }
 }
 
@@ -2185,6 +2204,10 @@ async function createGoogleCalendarEvent(plant, options = {}) {
       plants[index].googleEventId = eventIds[0] || null;
       savePlantsToStorage();
       renderApp();
+      // 새 이벤트 ID를 클라우드 상태에도 반영 (skipDelete=true인 전체 재생성 루프 제외)
+      if (!options.skipDelete) {
+        await saveAppStateToGoogleCalendar();
+      }
     }
   } catch (err) {
     console.error('구글 이벤트 생성 실패:', err);
@@ -2434,6 +2457,10 @@ async function syncAllPlantsToGoogleCalendarUnsafe(options = {}) {
     for (const plant of plants) {
       await createGoogleCalendarEvent(plant, { skipDelete: true });
     }
+
+    // 새로 발급된 이벤트 ID들을 클라우드 상태에 반영
+    await saveAppStateToGoogleCalendar();
+
     if (!quiet) {
       showToast('앱의 현재 화분 목록 기준으로 구글 캘린더 일정을 새로 만들었습니다.', 'success');
     }
@@ -2495,6 +2522,7 @@ async function snoozeWatering(plantId, days = 1) {
   plants[index].updatedAt = nowStamp();
   showToast(`'${plant.nickname || plant.name}' 물주기를 ${days}일 미뤘습니다.`, 'info');
   await persistAppState({ quiet: true });
+  await rebuildCalendarForPlant(plants[index]);
 }
 
 // --------------------------------------------------------------------------
@@ -2513,15 +2541,22 @@ async function waterAllDuePlants() {
   }
   if (!confirm(`오늘 물 줄 화분 ${duePlants.length}개에 모두 물을 줬다고 기록할까요?`)) return;
 
+  const updatedPlants = [];
   duePlants.forEach(p => {
     const idx = plants.findIndex(pl => pl.id === p.id);
     if (idx === -1) return;
     plants[idx].lastWatered = todayStr;
     plants[idx].updatedAt = nowStamp();
     recordWateringHistory(p.id, todayStr);
+    updatedPlants.push(plants[idx]);
   });
   showToast(`${duePlants.length}개 화분에 물주기 완료! 💧`, 'success');
+
+  // 상태 저장 후 변경된 식물들만 순차 캘린더 갱신
   await persistAppState({ quiet: true });
+  for (const plant of updatedPlants) {
+    await rebuildCalendarForPlant(plant);
+  }
 }
 
 // --------------------------------------------------------------------------
