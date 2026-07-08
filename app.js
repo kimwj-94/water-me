@@ -614,9 +614,11 @@ function initApp() {
   registerEventListeners();
 
   // S1: 탭/앱 복귀 시 클라우드 자동 재동기화
+  // runGoogleWork 큐로 직렬화 — 진행 중인 저장/일정 재생성과 끼어들며
+  // 경합하면 중복 일정의 원인이 될 수 있음
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && isGoogleConnected()) {
-      pullAndMergeFromCloud({ quiet: true });
+      runGoogleWork('클라우드 데이터 확인 중...', () => pullAndMergeFromCloud({ quiet: true }));
     }
   });
 
@@ -1402,10 +1404,19 @@ async function deletePlant(id) {
     deletedPlantIds[id] = nowStamp();
 
     // 이 식물의 캘린더 이벤트만 삭제 (전체 재생성 불필요)
+    // 일정 삭제가 실패해도 화분 삭제는 진행 — 남은 일정은 [전체 동기화]로 정리 가능
     if (isGoogleConnected()) {
-      await runGoogleWork(`'${name}' 캘린더 일정 삭제 중...`, () =>
-        deleteGoogleCalendarEventsForPlant(plant, { quiet: true })
-      );
+      try {
+        const cleaned = await runGoogleWork(`'${name}' 캘린더 일정 삭제 중...`, () =>
+          deleteGoogleCalendarEventsForPlant(plant, { quiet: true })
+        );
+        if (!cleaned) {
+          showToast('일부 캘린더 일정 삭제에 실패했습니다. [전체 동기화]로 정리할 수 있습니다.', 'warning');
+        }
+      } catch (err) {
+        console.error('화분 일정 삭제 실패:', err);
+        showToast('캘린더 일정 삭제에 실패했습니다. [전체 동기화]로 정리할 수 있습니다.', 'warning');
+      }
     }
 
     plants.splice(index, 1);
@@ -2287,7 +2298,13 @@ async function createGoogleCalendarEvent(plant, options = {}) {
   
   try {
     if (!options.skipDelete) {
-      await deleteGoogleCalendarEventsForPlant(plant, { quiet: true });
+      // 중복 방지: 기존 일정 정리에 실패하면(검색 실패 포함) 새 일정을 만들지 않는다.
+      // 정리가 안 된 상태에서 생성하면 같은 화분 일정이 2세트로 중복됨.
+      const cleaned = await deleteGoogleCalendarEventsForPlant(plant, { quiet: true });
+      if (!cleaned) {
+        showToast(`'${plant.nickname || plant.name}' 기존 일정 정리에 실패해 중복 방지를 위해 일정 생성을 건너뛰었습니다. [전체 동기화]로 정리해 주세요.`, 'warning');
+        return;
+      }
     }
     const futureDates = buildFutureWateringDates(plant, 6);
     const createRequestFactories = futureDates.map((eventDateStr) => () =>
@@ -2357,39 +2374,36 @@ async function deleteGoogleCalendarEvent(eventId) {
   }
 }
 
+// 중복 방지 핵심: 검색 실패를 빈 목록으로 위장하면 "기존 일정 없음"으로 오판하고
+// 기존 일정 위에 새 세트를 만들어 중복이 생긴다. 실패는 반드시 throw로 전파한다.
 async function findGoogleCalendarEventsForPlant(plantId) {
   if (!googleAccessToken || !googleCalendarId || !plantId) return [];
   if (!gapi?.client?.calendar) return [];
 
   gapi.client.setToken({ access_token: googleAccessToken });
 
-  try {
-    const futureInstancesResponse = await executeGoogleRequest(() => gapi.client.calendar.events.list({
-      calendarId: googleCalendarId,
-      maxResults: 2500,
-      showDeleted: false,
-      singleEvents: true,
-      timeMin: `${formatLocalDate()}T00:00:00+09:00`,
-      privateExtendedProperty: `waterMePlantId=${plantId}`
-    }));
+  const futureInstancesResponse = await executeGoogleRequest(() => gapi.client.calendar.events.list({
+    calendarId: googleCalendarId,
+    maxResults: 2500,
+    showDeleted: false,
+    singleEvents: true,
+    timeMin: `${formatLocalDate()}T00:00:00+09:00`,
+    privateExtendedProperty: `waterMePlantId=${plantId}`
+  }));
 
-    const masterAndSingleResponse = await executeGoogleRequest(() => gapi.client.calendar.events.list({
-      calendarId: googleCalendarId,
-      maxResults: 2500,
-      showDeleted: false,
-      singleEvents: false,
-      privateExtendedProperty: `waterMePlantId=${plantId}`
-    }));
+  const masterAndSingleResponse = await executeGoogleRequest(() => gapi.client.calendar.events.list({
+    calendarId: googleCalendarId,
+    maxResults: 2500,
+    showDeleted: false,
+    singleEvents: false,
+    privateExtendedProperty: `waterMePlantId=${plantId}`
+  }));
 
-    const byId = new Map();
-    [...(futureInstancesResponse.result.items || []), ...(masterAndSingleResponse.result.items || [])]
-      .forEach(event => byId.set(event.id, event));
+  const byId = new Map();
+  [...(futureInstancesResponse.result.items || []), ...(masterAndSingleResponse.result.items || [])]
+    .forEach(event => byId.set(event.id, event));
 
-    return Array.from(byId.values());
-  } catch (err) {
-    console.error('식물별 구글 이벤트 조회 실패:', err);
-    return [];
-  }
+  return Array.from(byId.values());
 }
 
 function isWaterMeEvent(event) {
@@ -2496,25 +2510,19 @@ async function deleteGoogleCalendarEventsForPlant(plant, options = {}) {
     ...(plant.googleEventId ? [plant.googleEventId] : [])
   ]);
 
+  // 검색 실패는 여기서 throw로 전파됨 — 호출부(createGoogleCalendarEvent)가
+  // 생성을 중단해 중복을 방지한다. 조용히 [] 처리하면 안 됨.
   const foundEvents = await findGoogleCalendarEventsForPlant(plant.id);
   foundEvents.forEach(event => knownIds.add(event.id));
 
   const ids = Array.from(knownIds);
+  // 순차 삭제로 개별 성공 여부를 확실히 확인한다.
+  // (배치는 항목별 실패를 검사하지 않아 삭제 누락 → 중복의 원인이 될 수 있음)
   let success = true;
-  const deleteRequestFactories = ids.map((eventId) => () =>
-    gapi.client.calendar.events.delete({
-      calendarId: googleCalendarId,
-      eventId
-    })
-  );
-
-  await runGoogleBatch(deleteRequestFactories, async () => {
-    for (const eventId of ids) {
-      const deleted = await deleteGoogleCalendarEvent(eventId);
-      if (deleted === false) success = false;
-    }
-    return success;
-  });
+  for (const eventId of ids) {
+    const deleted = await deleteGoogleCalendarEvent(eventId);
+    if (deleted === false) success = false;
+  }
 
   if (!options.quiet) {
     const index = plants.findIndex(p => p.id === plant.id);

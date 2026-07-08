@@ -17,8 +17,8 @@
   <meta name="apple-mobile-web-app-title" content="물 줘!">
   <meta name="theme-color" content="#4fc3f7">
 
-  <!-- CSS Stylesheet -->
-  <link rel="stylesheet" href="./style.css">
+  <!-- CSS Stylesheet (배포 시 ?v= 버전을 올려야 사용자 브라우저 캐시가 갱신됨) -->
+  <link rel="stylesheet" href="./style.css?v=2.1">
   
   <!-- Google APIs Client Libraries (OAuth & Calendar 연동용) -->
   <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -422,9 +422,9 @@
   <!-- Toast 알림 -->
   <div id="toast-container"></div>
 
-  <!-- Javascript Logic -->
-  <script src="./plants-db.js"></script>
-  <script src="./app.js"></script>
+  <!-- Javascript Logic (배포 시 ?v= 버전을 올려야 사용자 브라우저 캐시가 갱신됨) -->
+  <script src="./plants-db.js?v=2.1"></script>
+  <script src="./app.js?v=2.1"></script>
 
   <!-- PWA 서비스워커 등록 -->
   <script>

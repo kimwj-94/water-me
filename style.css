@@ -1787,3 +1787,130 @@ body {
     opacity: 0.55;
   }
 }
+
+/* ==========================================================================
+   라이트모드 전체 오버라이드 (v2)
+   다크 색상이 하드코딩된 컴포넌트들을 라이트 배경에 맞게 재지정
+   ========================================================================== */
+
+/* 요약 카드 (전체/오늘/3일이내/촉촉) — 어두운 유리 → 밝은 유리 */
+body.light-theme .summary-item {
+  background: rgba(255, 255, 255, 0.75);
+  box-shadow: 0 4px 18px rgba(15, 23, 42, 0.08);
+}
+body.light-theme .summary-item:hover {
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 8px 26px rgba(15, 23, 42, 0.14);
+}
+
+/* 숫자·제목의 흰색 그라데이션 텍스트 → 어두운 그라데이션 */
+body.light-theme .summary-number {
+  background: linear-gradient(135deg, #10231d, #047857);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+body.light-theme .brand-icon {
+  background: linear-gradient(135deg, #047857 30%, #0284c7 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: none;
+}
+
+/* 식물 카드 상태별 배경 — 어두운 그라데이션 → 연한 파스텔 */
+body.light-theme .status-watered {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.85) 0%, rgba(224, 242, 254, 0.7) 100%);
+  border-color: rgba(2, 132, 199, 0.25);
+}
+body.light-theme .status-warning {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.85) 0%, rgba(254, 243, 199, 0.7) 100%);
+  border-color: rgba(180, 83, 9, 0.3);
+}
+body.light-theme .status-danger {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.85) 0%, rgba(254, 226, 226, 0.75) 100%);
+  border-color: rgba(220, 38, 38, 0.35);
+}
+body.light-theme .schedule-info {
+  border-top-color: rgba(15, 23, 42, 0.08);
+}
+
+/* 버튼류 — 흰색 반투명 오버레이는 라이트 배경에서 안 보임 → 어두운 틴트 */
+body.light-theme .btn-secondary {
+  background-color: rgba(15, 23, 42, 0.06);
+}
+body.light-theme .btn-secondary:hover {
+  background-color: rgba(15, 23, 42, 0.12);
+}
+body.light-theme .btn-icon-only {
+  background-color: rgba(15, 23, 42, 0.05);
+}
+body.light-theme .btn-icon-only:hover {
+  background-color: rgba(15, 23, 42, 0.1);
+}
+body.light-theme .nav-btn:hover {
+  background-color: rgba(15, 23, 42, 0.06);
+}
+
+/* 입력 폼 — 흰색 오버레이 → 어두운 틴트로 경계 구분 */
+body.light-theme .form-control {
+  background: rgba(15, 23, 42, 0.045);
+}
+body.light-theme .form-control:focus {
+  background: rgba(15, 23, 42, 0.07);
+}
+body.light-theme .checkbox-row {
+  background: rgba(15, 23, 42, 0.035);
+}
+body.light-theme .search-helper-box {
+  background-color: rgba(15, 23, 42, 0.03);
+}
+
+/* 셀렉트 박스 */
+body.light-theme .select-control:focus {
+  background: #ffffff;
+}
+body.light-theme .select-control option {
+  background-color: #ffffff;
+  color: var(--text-main);
+}
+
+/* 자동완성 목록 — 다크 고정 배경 → 흰 배경 */
+body.light-theme .autocomplete-suggestions {
+  background-color: #ffffff;
+  box-shadow: 0 10px 25px rgba(15, 23, 42, 0.18);
+}
+body.light-theme .autocomplete-suggestions li {
+  border-bottom-color: rgba(15, 23, 42, 0.06);
+}
+body.light-theme .autocomplete-suggestions li:hover {
+  background-color: rgba(15, 23, 42, 0.05);
+}
+
+/* 빈 상태 박스 & 테이블 */
+body.light-theme .empty-state {
+  background-color: rgba(15, 23, 42, 0.03);
+}
+body.light-theme .plant-table th {
+  background-color: rgba(15, 23, 42, 0.05);
+}
+body.light-theme .plant-table tbody tr:hover {
+  background-color: rgba(15, 23, 42, 0.04);
+}
+
+/* 설정 모달 상태 박스 & 배너 */
+body.light-theme .sync-status-box {
+  background-color: rgba(15, 23, 42, 0.05);
+}
+body.light-theme .banner-card {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.85) 0%, rgba(224, 242, 254, 0.6) 100%);
+  border-color: rgba(2, 132, 199, 0.2);
+}
+
+/* 모달 닫기 버튼 hover — 흰색 → 어두운 색 */
+body.light-theme .modal-close-btn:hover {
+  color: var(--text-main);
+}
+
+/* 식물 카드 별명 — 흰색 고정 텍스트 → 어두운 색 */
+body.light-theme .plant-nickname {
+  color: var(--text-main);
+}
