@@ -23,6 +23,8 @@ let googleWorkDepth = 0;
 let midnightRefreshTimer = null;
 let isRefreshingToken = false;  // 토큰 갱신 중복 방지 (A2)
 let calendarRebuildTimer = null; // 캘린더 재생성 디바운스 (P1)
+let tokenRefreshTimer = null;    // F6: 만료 전 선제 토큰 갱신 타이머
+let lastCloudSaveFailed = false; // F10: 마지막 클라우드 저장 실패 여부
 
 const APP_STATE_MARKER = 'WATER_ME_APP_STATE';
 const APP_NAME = '💧물 줘!';
@@ -154,11 +156,41 @@ function requestGoogleToken(prompt = 'consent') {
       if (gapi?.client?.setToken) {
         gapi.client.setToken({ access_token: googleAccessToken });
       }
+      scheduleProactiveTokenRefresh(Number(response.expires_in) || 3600);
       resolve(response);
     };
 
     googleTokenClient.requestAccessToken({ prompt });
   });
+}
+
+// F6: 토큰 만료 5분 전에 미리 조용히 갱신 — 만료된 토큰으로 저장을 시도하다
+// 조용히 실패하는 문제(모바일에서 특히 빈번)를 예방한다.
+function scheduleProactiveTokenRefresh(expiresInSeconds) {
+  if (tokenRefreshTimer) clearTimeout(tokenRefreshTimer);
+  const refreshInMs = Math.max((expiresInSeconds - 300) * 1000, 60 * 1000);
+  tokenRefreshTimer = setTimeout(async () => {
+    tokenRefreshTimer = null;
+    if (!googleAccessToken) return;
+    const ok = await refreshGoogleAccessToken();
+    if (!ok) {
+      markCloudSyncBroken('구글 로그인이 만료되었습니다. 상단 [구글 로그인]을 다시 눌러 주세요.');
+    }
+  }, refreshInMs);
+}
+
+// F10: 클라우드 저장이 깨졌음을 사용자에게 확실히 알림
+function markCloudSyncBroken(message) {
+  lastCloudSaveFailed = true;
+  showToast(message, 'error');
+  if (DOM?.googleSyncBox) {
+    DOM.googleSyncBox.innerHTML = `
+      <span class="status-indicator status-offline"></span>
+      <span class="status-text">⚠ 클라우드 저장 실패 — 재로그인 필요</span>
+    `;
+  }
+  // 재로그인 버튼 노출
+  DOM.btnGoogleLogin.classList.remove('hidden');
 }
 
 async function refreshGoogleAccessToken() {
@@ -588,6 +620,14 @@ function initApp() {
     }
   });
 
+  // F8: PWA 바로가기 필터는 첫 렌더링 전에 적용해야 화면에 반영됨
+  // ?filter=water-today → 오늘 물 줄 화분만 표시
+  const initParams = new URLSearchParams(window.location.search);
+  const initFilter = initParams.get('filter');
+  if (initFilter && DOM.filterStatus) {
+    DOM.filterStatus.value = initFilter;
+  }
+
   // 화면 최초 렌더링
   renderApp();
   scheduleMidnightRefresh();
@@ -602,14 +642,7 @@ function initApp() {
     }
   }, 1000);
 
-  // 딥링크 처리 (4단계 UX)
-  // ?action=water&plantId=XXX → 원터치 물주기
-  // ?filter=water-today       → PWA 바로가기에서 필터 적용
-  const initParams = new URLSearchParams(window.location.search);
-  const initFilter = initParams.get('filter');
-  if (initFilter && DOM.filterStatus) {
-    DOM.filterStatus.value = initFilter;
-  }
+  // 딥링크 물주기 처리: ?action=water&plantId=XXX
   handleDeepLinkAction();
 }
 
@@ -793,10 +826,14 @@ function loadPlantsFromStorage() {
   } else {
     plants = [];
   }
-  // S4: tombstone 로드
+  // S4: tombstone 로드 + F9: 90일 지난 삭제 기록은 정리 (무한히 쌓이는 것 방지)
   try {
     const savedDeleted = localStorage.getItem(LOCAL_DELETED_KEY);
     deletedPlantIds = savedDeleted ? JSON.parse(savedDeleted) : {};
+    const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+    Object.keys(deletedPlantIds).forEach(id => {
+      if (deletedPlantIds[id] < cutoff) delete deletedPlantIds[id];
+    });
   } catch (e) {
     deletedPlantIds = {};
   }
@@ -831,12 +868,27 @@ async function persistAppStateUnsafe(options = {}) {
     if (!quiet) {
       showToast('현재 기기에만 저장되었습니다. PC/모바일 공유는 구글 연동 후 사용할 수 있습니다.', 'warning');
     }
-    return;
+    return false;
   }
 
-  // S3: 저장 전 최신 클라우드 상태를 pull하여 병합한 뒤 push
-  await pullAndMergeFromCloud({ quiet: true });
-  await saveAppStateToGoogleCalendar();
+  // F2: 클라우드 저장 실패는 quiet 모드여도 반드시 사용자에게 알린다.
+  // 이전에는 조용히 실패해서 "성공한 줄 알았는데 다른 기기에 반영 안 됨" 문제의 원인이 됐음.
+  try {
+    // S3: 저장 전 최신 클라우드 상태를 pull하여 병합한 뒤 push
+    // (바로 아래에서 직접 push하므로 pull 단계의 되밀기는 생략)
+    await pullAndMergeFromCloud({ quiet: true, pushBack: false });
+    await saveAppStateToGoogleCalendar();
+    lastCloudSaveFailed = false;
+    return true;
+  } catch (err) {
+    console.error('클라우드 저장 실패:', err);
+    if (isGoogleAuthError(err)) {
+      markCloudSyncBroken('구글 로그인이 만료되어 클라우드 저장에 실패했습니다. [구글 로그인]을 다시 눌러 주세요. (이 기기에는 저장됨)');
+    } else {
+      markCloudSyncBroken('클라우드 저장에 실패했습니다. 네트워크 확인 후 다시 시도해 주세요. (이 기기에는 저장됨)');
+    }
+    return false;
+  }
 }
 
 // P1: 캘린더 이벤트 재생성 디바운스 — 수동 전체 동기화 버튼에서만 사용
@@ -863,30 +915,67 @@ async function rebuildCalendarForPlant(plant) {
   );
 }
 
-// S3 helper: 클라우드 최신 상태를 가져와 현재 로컬 상태에 병합
-async function pullAndMergeFromCloud({ quiet = false } = {}) {
+// F4: 상태 이벤트 ID를 알고 있으면 검색 3회 대신 직접 조회 1회로 가져온다.
+async function fetchLatestAppStateEvent() {
+  if (googleStateEventId) {
+    try {
+      const response = await executeGoogleRequest(() => gapi.client.calendar.events.get({
+        calendarId: googleCalendarId,
+        eventId: googleStateEventId
+      }));
+      const parsed = parseAppStateEvent(response.result);
+      if (parsed) return { latest: parsed, stale: [] };
+    } catch (err) {
+      if (!isGoogleGoneError(err)) throw err;
+      googleStateEventId = null; // 이벤트가 삭제됨 → 전체 검색으로 폴백
+    }
+  }
+
+  const stateEvents = await findAppStateEvents();
+  const parsedStates = stateEvents
+    .map(parseAppStateEvent)
+    .filter(Boolean)
+    .sort((a, b) => Date.parse(b.updatedAt || '') - Date.parse(a.updatedAt || ''));
+
+  if (parsedStates.length === 0) return { latest: null, stale: [] };
+  return { latest: parsedStates[0], stale: parsedStates.slice(1) };
+}
+
+// S3 helper: 클라우드 최신 상태를 가져와 현재 로컬 상태에 병합.
+// F3: 병합 결과가 클라우드보다 최신이면(로컬 미동기 변경 존재) 즉시 클라우드로 되민다.
+async function pullAndMergeFromCloud({ quiet = false, pushBack = true } = {}) {
   if (!isGoogleConnected()) return;
   try {
-    const stateEvents = await findAppStateEvents();
-    const parsedStates = stateEvents
-      .map(parseAppStateEvent)
-      .filter(Boolean)
-      .sort((a, b) => Date.parse(b.updatedAt || '') - Date.parse(a.updatedAt || ''));
+    const { latest, stale } = await fetchLatestAppStateEvent();
+    if (!latest) return;
 
-    if (parsedStates.length === 0) return;
-
-    const latest = parsedStates[0];
     // 이미 같은 이벤트 ID이고 타임스탬프가 동일하면 재적용 불필요
-    if (latest.event.id === googleStateEventId &&
-        latest.payload.updatedAt === googleStateUpdatedAt) return;
+    const unchanged = latest.event.id === googleStateEventId &&
+      latest.payload.updatedAt === googleStateUpdatedAt;
 
     googleStateEventId = latest.event.id;
-    applyAppStatePayload(latest.payload, { merge: true });
-    renderApp();
+
+    if (!unchanged) {
+      applyAppStatePayload(latest.payload, { merge: true });
+      renderApp();
+
+      // F3: 병합 결과가 클라우드 payload와 다르면 로컬에 클라우드에 없는
+      // 최신 변경이 있다는 뜻 — 되밀지 않으면 세 번째 기기가 과거 데이터를 보게 됨
+      if (pushBack) {
+        const mergedSnapshot = JSON.stringify(plants.map(sanitizePlantForState));
+        const remoteSnapshot = JSON.stringify(
+          (Array.isArray(latest.payload.plants) ? latest.payload.plants : [])
+            .map(normalizePlant).filter(p => p.name).map(sanitizePlantForState)
+        );
+        if (mergedSnapshot !== remoteSnapshot) {
+          await saveAppStateToGoogleCalendar();
+        }
+      }
+    }
 
     // 중복 상태 이벤트 정리
-    for (const stale of parsedStates.slice(1)) {
-      await deleteGoogleCalendarEvent(stale.event.id);
+    for (const staleState of stale) {
+      await deleteGoogleCalendarEvent(staleState.event.id);
     }
   } catch (err) {
     if (!quiet) console.warn('클라우드 병합 중 오류:', err);
@@ -1294,10 +1383,12 @@ async function waterPlant(id) {
   const plant = plants[index];
   showToast(`'${plant.nickname || plant.name}'에게 물을 주었습니다! 💧`, 'success');
 
-  // 상태 저장 (클라우드 상태 이벤트)
-  await persistAppState({ quiet: true });
-  // 이 식물 캘린더 이벤트만 갱신 — 전체 재생성 없음
-  await rebuildCalendarForPlant(plant);
+  // 상태 저장 (클라우드 상태 이벤트) — 실패 시 캘린더 갱신은 건너뜀
+  const saved = await persistAppState({ quiet: true });
+  if (saved) {
+    // 이 식물 캘린더 이벤트만 갱신 — 전체 재생성 없음
+    await rebuildCalendarForPlant(plant);
+  }
 }
 
 async function deletePlant(id) {
@@ -1391,8 +1482,8 @@ async function handlePlantFormSubmit(e) {
       const updatedPlant = plants[index];
       closePlantModal();
       showToast('화분 정보가 수정되었습니다.', 'success');
-      await persistAppState({ quiet: true });
-      await rebuildCalendarForPlant(updatedPlant);
+      const saved = await persistAppState({ quiet: true });
+      if (saved) await rebuildCalendarForPlant(updatedPlant);
     }
   } else {
     const newPlant = {
@@ -1409,8 +1500,8 @@ async function handlePlantFormSubmit(e) {
     plants.push(newPlant);
     closePlantModal();
     showToast(`새로운 화분 '${nickname || name}'가 등록되었습니다! 🌱`, 'success');
-    await persistAppState({ quiet: true });
-    await rebuildCalendarForPlant(newPlant);
+    const saved = await persistAppState({ quiet: true });
+    if (saved) await rebuildCalendarForPlant(newPlant);
   }
 }
 
@@ -1792,6 +1883,8 @@ function handleGoogleLogout() {
     cloudStateLoaded = false;
     googleApiClientReady = typeof gapi !== 'undefined' && Boolean(gapi?.client?.calendar);
     if (calendarRebuildTimer) { clearTimeout(calendarRebuildTimer); calendarRebuildTimer = null; }
+    if (tokenRefreshTimer) { clearTimeout(tokenRefreshTimer); tokenRefreshTimer = null; }
+    lastCloudSaveFailed = false;
 
     DOM.googleSyncBox.innerHTML = `
       <span class="status-indicator status-offline"></span>
@@ -1811,6 +1904,7 @@ function handleGoogleLogout() {
 }
 
 async function onGoogleAuthSuccess() {
+  lastCloudSaveFailed = false;  // 재로그인으로 복구됨
   DOM.btnGoogleLogin.classList.add('hidden');
   DOM.btnGoogleLogout.classList.remove('hidden');
   DOM.btnSyncCalendar.disabled = false;
@@ -1823,13 +1917,10 @@ async function onGoogleAuthSuccess() {
   
   try {
     await setupWaterMeCalendar();
-
     await loadAppStateFromGoogleCalendar();
-    await syncAllPlantsToGoogleCalendar({
-      confirmFirst: false,
-      saveStateFirst: false,
-      quiet: true
-    });
+    // F1: 로그인 때마다 전체 캘린더 재생성하지 않음.
+    // 모바일에서 재생성 도중 탭이 죽으면 캘린더가 반쯤 지워진 상태로 남는 문제의 원인이었음.
+    // 전체 재생성은 상단 '전체 동기화' 버튼으로만 수동 실행.
   } catch (err) {
     console.error('전용 캘린더 및 데이터 동기화 실패:', err);
     showToast(err.message || '전용 캘린더 및 데이터 동기화에 실패했습니다.', 'error');
@@ -1972,11 +2063,22 @@ async function loadAppStateFromGoogleCalendar() {
   if (parsedStates.length > 0) {
     const latest = parsedStates[0];
     googleStateEventId = latest.event.id;
-    // S2: 초기 로드 시 로컬과 병합 (로컬에 미동기 데이터가 있을 수 있으므로)
-    applyAppStatePayload(latest.payload, { merge: cloudStateLoaded });
+    // S2: 항상 병합 모드 — 로그인 전에 이 기기에서 물 준 기록 등 미동기 변경이
+    // 있을 수 있으므로 단순 교체하면 안 됨 (로컬이 비어있으면 자동으로 교체 동작)
+    applyAppStatePayload(latest.payload, { merge: true });
     cloudStateLoaded = true;
     renderApp();
     showToast('구글 캘린더의 중앙 데이터를 불러왔습니다.', 'success');
+
+    // 병합 결과가 클라우드와 다르면(로컬 최신 변경 존재) 즉시 되밀기
+    const mergedSnapshot = JSON.stringify(plants.map(sanitizePlantForState));
+    const remoteSnapshot = JSON.stringify(
+      (Array.isArray(latest.payload.plants) ? latest.payload.plants : [])
+        .map(normalizePlant).filter(p => p.name).map(sanitizePlantForState)
+    );
+    if (mergedSnapshot !== remoteSnapshot) {
+      await saveAppStateToGoogleCalendar();
+    }
 
     for (const staleState of parsedStates.slice(1)) {
       await deleteGoogleCalendarEvent(staleState.event.id);
@@ -2006,13 +2108,31 @@ async function loadAppStateFromGoogleCalendar() {
   showToast('현재 기기의 데이터를 구글 캘린더 중앙 데이터로 저장했습니다.', 'success');
 }
 
+// F5: 구글 캘린더 이벤트 설명란 최대 길이(약 8192자) 제한 방어
+const APP_STATE_DESCRIPTION_LIMIT = 7500;
+
 async function saveAppStateToGoogleCalendar() {
   if (!isGoogleConnected()) return;
 
   gapi.client.setToken({ access_token: googleAccessToken });
 
   const payload = buildAppStatePayload();
-  const resource = buildAppStateEventResource(payload);
+  let resource = buildAppStateEventResource(payload);
+
+  // F5: 도감 데이터가 커져 설명란 한도를 넘으면 저장 자체가 400 에러로 계속 실패한다.
+  // 이 경우 도감은 페이로드에서 제외(로컬에는 유지)하고 식물 데이터만 동기화한다.
+  if (resource.description.length > APP_STATE_DESCRIPTION_LIMIT) {
+    console.warn(`앱 상태 페이로드가 큼(${resource.description.length}자) — 도감 데이터를 동기화에서 제외합니다.`);
+    // 키 자체를 제거해야 함 — 빈 배열로 보내면 다른 기기의 도감이 빈 값으로 덮어써짐
+    const slimPayload = { ...payload };
+    delete slimPayload.customPlantDatabase;
+    resource = buildAppStateEventResource(slimPayload);
+    if (resource.description.length > APP_STATE_DESCRIPTION_LIMIT) {
+      showToast('식물 데이터가 너무 많아 클라우드 동기화 용량을 초과했습니다. 사용하지 않는 화분을 정리해 주세요.', 'error');
+      throw new Error('앱 상태 페이로드가 캘린더 설명란 한도를 초과했습니다.');
+    }
+    showToast('내 도감 데이터가 많아 도감은 이 기기에만 저장됩니다. (화분 데이터는 정상 동기화)', 'warning');
+  }
 
   try {
     if (!googleStateEventId) {
@@ -2050,8 +2170,8 @@ async function saveAppStateToGoogleCalendar() {
     savePlantsToStorage();
     saveCustomPlantDatabase();
   } catch (err) {
+    // 오류 안내는 호출부(persistAppStateUnsafe 등)에서 일괄 처리
     console.error('앱 데이터 이벤트 저장 실패:', err);
-    showToast('구글 캘린더 중앙 데이터 저장에 실패했습니다.', 'error');
     throw err;
   }
 }
@@ -2521,8 +2641,8 @@ async function snoozeWatering(plantId, days = 1) {
   plants[index].lastWatered = newLastWatered;
   plants[index].updatedAt = nowStamp();
   showToast(`'${plant.nickname || plant.name}' 물주기를 ${days}일 미뤘습니다.`, 'info');
-  await persistAppState({ quiet: true });
-  await rebuildCalendarForPlant(plants[index]);
+  const saved = await persistAppState({ quiet: true });
+  if (saved) await rebuildCalendarForPlant(plants[index]);
 }
 
 // --------------------------------------------------------------------------
@@ -2552,10 +2672,12 @@ async function waterAllDuePlants() {
   });
   showToast(`${duePlants.length}개 화분에 물주기 완료! 💧`, 'success');
 
-  // 상태 저장 후 변경된 식물들만 순차 캘린더 갱신
-  await persistAppState({ quiet: true });
-  for (const plant of updatedPlants) {
-    await rebuildCalendarForPlant(plant);
+  // 상태 저장 후 변경된 식물들만 순차 캘린더 갱신 (저장 실패 시 건너뜀)
+  const saved = await persistAppState({ quiet: true });
+  if (saved) {
+    for (const plant of updatedPlants) {
+      await rebuildCalendarForPlant(plant);
+    }
   }
 }
 
@@ -2620,17 +2742,30 @@ function buildDeepLinkDescription(plant, eventDateStr) {
 
 function addSwipeToWater(cardEl, plantId) {
   let startX = 0;
+  let startY = 0;
   let isDragging = false;
+  let cancelled = false;  // F7: 세로 스크롤로 판단되면 스와이프 취소
 
   cardEl.addEventListener('pointerdown', e => {
     startX = e.clientX;
+    startY = e.clientY;
     isDragging = true;
+    cancelled = false;
     cardEl.style.transition = 'none';
   }, { passive: true });
 
   cardEl.addEventListener('pointermove', e => {
-    if (!isDragging) return;
+    if (!isDragging || cancelled) return;
     const dx = e.clientX - startX;
+    const dy = Math.abs(e.clientY - startY);
+    // F7: 세로 이동이 가로보다 크면 스크롤 의도로 판단 — 오작동 물주기 방지
+    if (dy > 30 && dy > dx) {
+      cancelled = true;
+      cardEl.style.transition = 'transform 0.25s, opacity 0.25s';
+      cardEl.style.transform = '';
+      cardEl.style.opacity = '';
+      return;
+    }
     if (dx > 0 && dx < 120) {
       cardEl.style.transform = `translateX(${dx}px)`;
       cardEl.style.opacity = `${1 - dx / 240}`;
@@ -2640,10 +2775,12 @@ function addSwipeToWater(cardEl, plantId) {
   const endSwipe = async (e) => {
     if (!isDragging) return;
     isDragging = false;
+    if (cancelled) return;
     const dx = e.clientX - startX;
+    const dy = Math.abs(e.clientY - startY);
     cardEl.style.transition = 'transform 0.25s, opacity 0.25s';
 
-    if (dx >= 80) {
+    if (dx >= 80 && dy < 40) {
       cardEl.style.transform = 'translateX(120px)';
       cardEl.style.opacity = '0';
       await waterPlant(plantId);
